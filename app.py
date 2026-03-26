@@ -139,8 +139,8 @@ def setup_page():
     * { box-sizing: border-box; }
 
     .main .block-container {
-        padding: 0 0 5rem 0;
-        max-width: 660px;
+        padding: 0 1rem 5rem 1rem;
+        max-width: 100%;
         font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
     }
     #MainMenu, footer, header { visibility: hidden; }
