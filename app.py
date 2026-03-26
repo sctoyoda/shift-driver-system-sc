@@ -737,371 +737,270 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     driver_configs = db.get_all_driver_configs()
     wd = WEEKDAY_JA[target_date.weekday()]
 
-    PAGE_W   = 210
-    PAGE_H   = 297
-    MARGIN   = 14
-    CW       = PAGE_W - MARGIN * 2   # 182mm
+    PAGE_W  = 210
+    PAGE_H  = 297
+    MARGIN  = 8
+    CW      = PAGE_W - MARGIN * 2
 
-    # ── カラー定数 ──
-    C_BG        = (242, 241, 237)   # ページ背景（クリーム）
-    C_HEADER    = (26,  26,  26)    # ヘッダー黒
-    C_CARD_BG   = (255, 255, 255)   # カード白
-    C_CARD_HEAD = (250, 249, 246)   # カードヘッダー薄クリーム
-    C_BORDER    = (232, 230, 223)   # カード枠線
-    C_ROW_ALT   = (252, 251, 249)   # 行交互背景
-    C_TEXT      = (26,  26,  26)    # 本文テキスト
-    C_MUTED     = (170, 170, 170)   # 薄テキスト
-    C_LABEL     = (120, 120, 120)   # セクションラベル
+    C_BG        = (242, 241, 237)
+    C_CARD_BG   = (255, 255, 255)
+    C_CARD_HEAD = (250, 249, 246)
+    C_BORDER    = (224, 221, 214)
+    C_TEXT      = (26,  26,  26)
+    C_MUTED     = (170, 170, 170)
+    C_LABEL     = (150, 150, 150)
 
     COLOR_MAP = {
-        '与野':    (67, 160,  71),  '川口':    (245, 127,  23),
-        '巣鴨':    (230,  81,   0), 'イイダ':  ( 55,  71,  79),
-        '高島平':  ( 13,  71, 161), '東天紅':  (106,  27, 154),
+        '与野':    (67, 160,  71), '川口':    (245, 127,  23),
+        '巣鴨':    (230,  81,   0),'イイダ':  ( 55,  71,  79),
+        '高島平':  ( 13,  71, 161),'東天紅':  (106,  27, 154),
         'ハナマサ':(136,  14,  79),
     }
     EARLY_COLORS = {
         'リネン': (13, 71, 161), 'リネン対面': (10, 48, 96),
         '洗濯':   (51, 105, 30), 'カゴ回収':   (40, 53, 147),
     }
-    YONO_BADGE_COLOR = {
-        'early_shift': (91, 33, 182),   # 紫
-        'spot':        ( 7, 89, 133),   # 青
+    YONO_BADGE = {
+        'early_shift': ((91, 33, 182), '早番'),
+        'spot':        (( 7, 89, 133), 'スポット'),
     }
-    YONO_BADGE_LABEL = {'early_shift': '早番', 'spot': 'スポット'}
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     pdf.set_auto_page_break(auto=False)
     font = _load_font(pdf)
 
-    def sf(size):
-        pdf.set_font(font if font else 'Helvetica', size=size)
+    def sf(size): pdf.set_font(font if font else 'Helvetica', size=size)
+    def t(s): return s if font else s.encode('ascii', 'replace').decode()
+    def fill(r, g, b): pdf.set_fill_color(r, g, b)
+    def ink(r, g, b):  pdf.set_text_color(r, g, b)
+    def draw(r, g, b): pdf.set_draw_color(r, g, b)
 
-    def t(s):
-        return s if font else s.encode('ascii', 'replace').decode()
-
-    def fill(r, g, b):   pdf.set_fill_color(r, g, b)
-    def ink(r, g, b):    pdf.set_text_color(r, g, b)
-    def draw(r, g, b):   pdf.set_draw_color(r, g, b)
-
-    # ────────────────────────────────
     # ページ背景
-    # ────────────────────────────────
-    fill(*C_BG)
-    pdf.rect(0, 0, PAGE_W, PAGE_H, 'F')
+    fill(*C_BG); pdf.rect(0, 0, PAGE_W, PAGE_H, 'F')
 
-    # ────────────────────────────────
-    # 全コンテンツ高さを先算して1ページスケール係数を決定
-    # ────────────────────────────────
     display_df_pre = df[~df['job_main'].fillna('').isin(EXCLUDED_JOBS)]
     early_df_pre   = display_df_pre[
         display_df_pre['job_early'].notna() & (display_df_pre['job_early'] != '')]
 
-    BASE_ROW_H    = 7.0
-    BASE_CARD_HDR = 7.0
-    BASE_SPACING  = 2.0
-    BASE_SEC_LBL  = 6.0
-    HDR_H         = 28.0
-    BAR_H         = 7.0
-    FOOTER_H      = 10.0
-    AVAIL_H       = PAGE_H - HDR_H - 3 - BAR_H - 2 - FOOTER_H  # コンテンツ高さ上限
+    # ── 高さ推算してスケール計算 ──
+    BASE_ROW_H   = 10.0
+    BASE_HDR_H   = 10.0
+    BASE_SPACING = 1.5
+    BASE_SEC_LBL = 6.0
+    DATE_H       = 28.0
+    FOOTER_H     = 7.0
+    AVAIL_H      = PAGE_H - DATE_H - 4 - FOOTER_H
 
-    def _est_h(nrows):
-        return BASE_CARD_HDR + nrows * BASE_ROW_H + BASE_SPACING
+    def _est_h(nrows): return BASE_HDR_H + nrows * BASE_ROW_H + BASE_SPACING
 
     need = BASE_SEC_LBL
     for job in MAIN_JOBS_ORDER:
         if job == '与野':
-            # 早番/スポット/通常便の3分割を想定（最大3カード分のヘッダーを加算）
             n = len(display_df_pre[display_df_pre['job_main'] == '与野'])
             if n > 0:
-                need += _est_h(n) + (BASE_CARD_HDR + BASE_SPACING) * 2
+                need += _est_h(n) + (BASE_HDR_H + BASE_SPACING) * 2
         else:
             n = len(display_df_pre[display_df_pre['job_main'] == job])
-            if n > 0:
-                need += _est_h(n)
+            if n > 0: need += _est_h(n)
     grp_early = {}
     for _, r in early_df_pre.iterrows():
-        ej = r['job_early']
-        grp_early[ej] = grp_early.get(ej, 0) + 1
+        grp_early[r['job_early']] = grp_early.get(r['job_early'], 0) + 1
     if grp_early:
         need += BASE_SEC_LBL
-        for ej, n in grp_early.items():
-            need += _est_h(n)
+        for n in grp_early.values(): need += _est_h(n)
 
-    scale = (AVAIL_H / need) if need > 0 else 1.0
+    scale    = (AVAIL_H / need) if need > 0 else 1.0
+    ROW_H    = BASE_ROW_H   * scale
+    CARD_HDR = BASE_HDR_H   * scale
+    SPACING  = BASE_SPACING * scale
+    SEC_LBL  = BASE_SEC_LBL * scale
+    LEFT_BAR = 4.0
 
-    ROW_H    = BASE_ROW_H    * scale
-    CARD_HDR = BASE_CARD_HDR * scale
-    SPACING  = BASE_SPACING  * scale
-    SEC_LBL  = BASE_SEC_LBL  * scale
-
-    # ────────────────────────────────
-    # ヘッダー帯
-    # ────────────────────────────────
-    fill(*C_HEADER)
-    pdf.rect(0, 0, PAGE_W, HDR_H, 'F')
-
-    # ブランド小文字
-    sf(7)
-    ink(80, 80, 80)
-    pdf.set_xy(MARGIN, 4)
-    pdf.cell(CW, 4, t('LOGISTICS  ·  OPERATIONS'), align='L')
-
-    # タイトル「シフト確認」
-    sf(14)
-    ink(245, 245, 245)
-    pdf.set_xy(MARGIN, 8)
-    pdf.cell(CW * 0.55, 9, t('シフト確認'), align='L')
-
-    # 右側: 日付大
-    sf(16)
-    ink(245, 245, 245)
-    date_big = f"{target_date.month:02d} / {target_date.day:02d}"
-    pdf.set_xy(MARGIN + CW * 0.55, 6)
-    pdf.cell(CW * 0.45, 9, date_big, align='R')
-
-    # 右側: 曜日・年
-    sf(7)
-    ink(100, 100, 100)
-    pdf.set_xy(MARGIN + CW * 0.55, 16)
-    is_we = _is_weekend(target_date)
+    # ── 日付ヘッダー（WebUI スタイル）──
+    is_we    = _is_weekend(target_date)
     day_type = '休日' if is_we else '平日'
-    pdf.cell(CW * 0.45,
-             5, t(f'{target_date.year}  {wd}曜日  {day_type}'), align='R')
 
-    pdf.set_y(HDR_H + 3)
+    sf(22); ink(*C_TEXT)
+    date_str = f"{target_date.month:02d}  /  {target_date.day:02d}"
+    pdf.set_xy(MARGIN, 4)
+    pdf.cell(CW * 0.62, 14, t(date_str), align='L')
 
-    # ────────────────────────────────
-    # データなし
-    # ────────────────────────────────
+    sf(7); ink(*C_MUTED)
+    pdf.set_xy(MARGIN + CW * 0.62, 5)
+    pdf.cell(CW * 0.38, 5, str(target_date.year), align='L')
+
+    sf(11); ink(*C_TEXT)
+    pdf.set_xy(MARGIN + CW * 0.62, 11)
+    pdf.cell(CW * 0.38, 7, t(f'{wd}曜日'), align='L')
+
+    # 右端: 平日/休日バッジ
+    is_we = _is_weekend(target_date)
+    bx, bw_badge, bh_badge = PAGE_W - MARGIN - 18, 18, 6
+    if is_we:
+        fill(254, 242, 242); draw(251, 147, 147)
+        ink(192, 57, 43)
+    else:
+        fill(232, 240, 254); draw(195, 214, 253)
+        ink(26, 86, 219)
+    pdf.set_draw_color(*((251,147,147) if is_we else (195,214,253)))
+    pdf.rect(bx, 6, bw_badge, bh_badge, 'FD')
+    sf(6)
+    pdf.set_xy(bx, 7)
+    pdf.cell(bw_badge, bh_badge - 2, t(day_type), align='C')
+
+    # 区切り線
+    draw(*C_BORDER)
+    pdf.line(MARGIN, DATE_H, MARGIN + CW, DATE_H)
+    pdf.set_y(DATE_H + 4)
+
     if df.empty:
-        sf(11); ink(*C_MUTED)
-        pdf.set_x(MARGIN)
+        sf(11); ink(*C_MUTED); pdf.set_x(MARGIN)
         pdf.cell(CW, 10, t('データがありません。'), align='C')
         return bytes(pdf.output())
 
     display_df = display_df_pre
 
-    # ────────────────────────────────
-    # 稼働合計バー
-    # ────────────────────────────────
-    BAR_Y = pdf.get_y()
-    fill(*C_CARD_BG)
-    draw(*C_BORDER)
-    pdf.rect(MARGIN, BAR_Y, CW, BAR_H, 'FD')
-
-    sf(7); ink(*C_LABEL)
-    pdf.set_xy(MARGIN + 3, BAR_Y + 1.5)
-    pdf.cell(30, 4, t('TOTAL  DRIVERS'), align='L')
-
-    sf(11); ink(*C_TEXT)
-    pdf.set_xy(MARGIN, BAR_Y + 0.5)
-    pdf.cell(CW - 3, BAR_H - 1, t(f'{len(display_df)} 名'), align='R')
-
-    pdf.set_y(BAR_Y + BAR_H + 2)
-
-    # ────────────────────────────────
-    # 案件カード描画
-    # ────────────────────────────────
+    # ── セクションラベル ──
     def draw_section_label(label_txt):
         y = pdf.get_y()
-        sf(7); ink(*C_LABEL)
+        sf(6); ink(*C_LABEL)
         pdf.set_xy(MARGIN, y)
-        pdf.cell(CW, SEC_LBL * 0.7, t(label_txt.upper()), align='L')
+        pdf.cell(CW, SEC_LBL * 0.7, t(label_txt), align='L')
         draw(*C_BORDER)
-        pdf.line(MARGIN, y + SEC_LBL * 0.7, MARGIN + CW, y + SEC_LBL * 0.7)
+        pdf.line(MARGIN, y + SEC_LBL * 0.75, MARGIN + CW, y + SEC_LBL * 0.75)
         pdf.set_y(y + SEC_LBL)
 
-    def draw_card(label, rows, accent_r, accent_g, accent_b, hide_early=False, hide_yono_badge=False, left_badge=None, header_badge=None, logo_path=None):
-        if not rows:
-            return
+    # ── カード描画 ──
+    def draw_card(label, rows, ar, ag, ab,
+                  hide_early=False, header_badge=None):
+        if not rows: return
+        card_x = MARGIN
+        head_y = pdf.get_y()
 
-        LEFT_BAR = 3
-        card_x   = MARGIN
-        head_y   = pdf.get_y()
-        body_h   = len(rows) * ROW_H
-
-        # カードヘッダー
+        # カードヘッダー（WebUI: 薄背景 + 左ボーダー + 案件名大）
         fill(*C_CARD_HEAD); draw(*C_BORDER)
         pdf.rect(card_x, head_y, CW, CARD_HDR, 'FD')
-        fill(accent_r, accent_g, accent_b)
+        fill(ar, ag, ab)
         pdf.rect(card_x, head_y, LEFT_BAR, CARD_HDR, 'F')
 
-        sf(7); ink(*C_LABEL)
-        pdf.set_xy(card_x + LEFT_BAR + 3, head_y + CARD_HDR * 0.2)
-        pdf.cell(CW * 0.5, CARD_HDR * 0.7, t(label.upper()), align='L')
+        # 案件名
+        name_fs = max(8, int(CARD_HDR * 0.75))
+        sf(name_fs); ink(*C_TEXT)
+        pdf.set_xy(card_x + LEFT_BAR + 3, head_y + (CARD_HDR - name_fs * 0.35) / 2)
+        pdf.cell(CW * 0.55, name_fs * 0.35 + 1, t(label), align='L')
 
-        # ヘッダーバッジ（与野タイプ等）
+        # ヘッダーバッジ
         if header_badge:
             hb_text, hb_r, hb_g, hb_b = header_badge
-            label_w = pdf.get_string_width(label.upper()) + 2
-            bx = card_x + LEFT_BAR + 3 + label_w + 2
-            bh = CARD_HDR * 0.65
-            bw = 14.0
+            bh = CARD_HDR * 0.6; bw = 16.0
+            lw = pdf.get_string_width(label) + 3
+            bx = card_x + LEFT_BAR + 3 + lw
             fill(hb_r, hb_g, hb_b); ink(255, 255, 255); sf(6)
             pdf.set_xy(bx, head_y + (CARD_HDR - bh) / 2)
             pdf.cell(bw, bh, t(hb_text), fill=True, align='C')
-            fill(*C_CARD_HEAD); ink(*C_LABEL)  # 色をリセット
+
+        # 右: 人数
+        sf(7); ink(*C_MUTED)
+        pdf.set_xy(card_x, head_y + (CARD_HDR - 4) / 2)
+        pdf.cell(CW - 3, 4, t(f'{len(rows)}'), align='R')
 
         pdf.set_y(head_y + CARD_HDR)
 
         # ドライバー行
-        tag_h   = ROW_H * 0.52
-        tag_w   = 13.0
-        name_fs = max(7, int(ROW_H * 1.3))
+        tag_h  = ROW_H * 0.5
+        drv_fs = max(8, int(ROW_H * 0.72))
 
         for i, row in enumerate(rows):
             row_y = pdf.get_y()
-            fill(*(C_ROW_ALT if i % 2 == 0 else C_CARD_BG))
-            draw(*C_BORDER)
+            fill(255, 255, 255); draw(*C_BORDER)
             pdf.rect(card_x, row_y, CW, ROW_H, 'FD')
-            fill(accent_r, accent_g, accent_b)
+            fill(ar, ag, ab)
             pdf.rect(card_x, row_y, LEFT_BAR, ROW_H, 'F')
 
             x_cur = card_x + LEFT_BAR + 3
 
-            # 早朝案件タグ
+            # 早朝タグ
             if row.get('job_early') and not hide_early:
                 fill(30, 64, 175); ink(255, 255, 255); sf(6)
+                tw = pdf.get_string_width(row['job_early']) + 4
                 pdf.set_xy(x_cur, row_y + (ROW_H - tag_h) / 2)
-                pdf.cell(tag_w, tag_h, t(row['job_early']), fill=True, align='C')
-                x_cur += tag_w + 1.5
+                pdf.cell(tw, tag_h, t(row['job_early']), fill=True, align='C')
+                x_cur += tw + 2
 
             # ドライバー名
-            sf(name_fs); ink(*C_TEXT)
-            pdf.set_xy(x_cur, row_y + (ROW_H - ROW_H * 0.65) / 2)
-            pdf.cell(90, ROW_H * 0.65, t(row['driver']), align='L')
+            sf(drv_fs); ink(*C_TEXT)
+            pdf.set_xy(x_cur, row_y + (ROW_H - drv_fs * 0.35) / 2)
+            pdf.cell(110, drv_fs * 0.35 + 1, t(row['driver']), align='L')
+
+            # 右端バッジ（右から順に配置）
+            rx = card_x + CW - 2
+            def put_badge(label_b, br, bg_c, bb):
+                nonlocal rx
+                sf(6); bw = pdf.get_string_width(label_b) + 5
+                rx -= bw + 1
+                fill(br, bg_c, bb); ink(255, 255, 255)
+                pdf.set_xy(rx, row_y + (ROW_H - tag_h) / 2)
+                pdf.cell(bw, tag_h, t(label_b), fill=True, align='C')
+
+            if row.get('special_flag'):     put_badge('特殊',  185, 28, 28)
+            if row.get('yokonori_flag'):    put_badge('横乗り',180, 83,  9)
 
             # 与野タイプバッジ
-            if not hide_yono_badge and row.get('job_main') == '与野':
-                from_pdf = row.get('yono_type', 'normal')
-                yt = from_pdf if from_pdf and from_pdf != 'normal' \
-                    else driver_configs.get(row['driver'], 'normal')
-                if yt in YONO_BADGE_COLOR:
-                    br, bg_c, bb = YONO_BADGE_COLOR[yt]
-                    bw = 16
-                    fill(br, bg_c, bb); ink(255, 255, 255); sf(6)
-                    pdf.set_xy(card_x + CW - bw - 3, row_y + (ROW_H - tag_h) / 2)
-                    pdf.cell(bw, tag_h, t(YONO_BADGE_LABEL[yt]), fill=True, align='C')
-
-            # 横乗りバッジ
-            if row.get('yokonori_flag'):
-                yo_w = 13.0
-                fill(180, 83, 9); ink(255, 255, 255); sf(6)
-                pdf.set_xy(card_x + CW - yo_w - 2, row_y + (ROW_H - tag_h) / 2)
-                pdf.cell(yo_w, tag_h, t('横乗り'), fill=True, align='C')
-
-            # 特殊フラグ（右端から2mm内側に右寄せ）
-            if row.get('special_flag'):
-                sp_w = 9.0
-                fill(185, 28, 28); ink(255, 255, 255); sf(6)
-                pdf.set_xy(card_x + CW - sp_w - 2, row_y + (ROW_H - tag_h) / 2)
-                pdf.cell(sp_w, tag_h, t('特殊'), fill=True, align='C')
+            yt = row.get('yono_type', 'normal')
+            if not yt or yt == 'normal':
+                yt = driver_configs.get(row['driver'], 'normal')
+            if yt in YONO_BADGE:
+                (br, bg_c, bb), lbl = YONO_BADGE[yt]
+                put_badge(lbl, br, bg_c, bb)
 
             pdf.set_y(row_y + ROW_H)
 
-        # ── ウォーターマークロゴ（背景自動除去・全案件同一幅・右配置）──
-        if logo_path and os.path.exists(logo_path) and body_h > 0:
-            try:
-                buf2, (iw, ih) = _prepare_logo_buf(logo_path)
-                if buf2 is None:
-                    raise ValueError
-                buf2.seek(0)
-                aspect = iw / ih
+        pdf.set_y(head_y + CARD_HDR + len(rows) * ROW_H + SPACING)
 
-                # 全案件固定幅 CW*0.36
-                LOGO_W = CW * 0.36
-                target_w = LOGO_W
-                target_h = target_w / aspect
-
-                # 高さ上限: カード全体の75% かつ最大13mm
-                full_card_h = CARD_HDR + body_h
-                MAX_LOGO_H = min(full_card_h * 0.75, 13.0)
-                if target_h > MAX_LOGO_H:
-                    target_h = MAX_LOGO_H
-
-                # 右寄せ（右端から2mm内側）・カード全体で垂直中央
-                lx = card_x + CW - target_w - 2
-                ly = head_y + (full_card_h - target_h) / 2
-
-                with pdf.local_context(fill_opacity=0.18, stroke_opacity=0.18):
-                    pdf.image(buf2, x=lx, y=ly, w=target_w, h=target_h)
-            except Exception:
-                pass
-
-        pdf.set_y(head_y + CARD_HDR + body_h + SPACING)
-
-    # 案件別セクション
-    draw_section_label('案件別稼働')
-
+    # ── 与野タイプ判定 ──
     def _get_yt(row):
-        from_pdf = row.get('yono_type', 'normal')
-        return from_pdf if from_pdf and from_pdf != 'normal' \
-            else driver_configs.get(row['driver'], 'normal')
+        v = row.get('yono_type', 'normal')
+        return v if v and v != 'normal' else driver_configs.get(row['driver'], 'normal')
 
+    # ── 案件別稼働 ──
+    draw_section_label('案件別稼働')
     for job in MAIN_JOBS_ORDER:
         job_rows = display_df[display_df['job_main'] == job].to_dict('records')
-        logo_file = LOGO_MAP.get(job)
-        logo_path = os.path.join(LOGO_DIR, logo_file) if logo_file else None
-        accent = COLOR_MAP.get(job, (80, 80, 80))
+        accent   = COLOR_MAP.get(job, (80, 80, 80))
+        if not job_rows: continue
 
         if job == '与野':
             spot_rows   = [r for r in job_rows if _get_yt(r) == 'spot']
             early_rows  = [r for r in job_rows if _get_yt(r) == 'early_shift']
             normal_rows = [r for r in job_rows if _get_yt(r) == 'normal']
-
-            # ── 3カード合計高さを先算してイオンロゴを背景として先描画 ──
-            yono_start_y = pdf.get_y()
-            total_yono_h = sum(
-                CARD_HDR + len(r) * ROW_H + SPACING
-                for r in [spot_rows, early_rows, normal_rows] if r
-            )
-
-            # 3カードそれぞれにロゴを乗せる（他企業と同サイズ）
             if spot_rows:
-                draw_card('与野', spot_rows, *accent,
-                          hide_early=True, hide_yono_badge=True,
-                          header_badge=('スポット', 7, 89, 133),
-                          logo_path=logo_path)
+                draw_card('与野', spot_rows, *accent, hide_early=True,
+                          header_badge=('スポット', 7, 89, 133))
             if early_rows:
-                draw_card('与野', early_rows, *accent,
-                          hide_early=True, hide_yono_badge=True,
-                          header_badge=('早番', 91, 33, 182),
-                          logo_path=logo_path)
+                draw_card('与野', early_rows, *accent, hide_early=True,
+                          header_badge=('早番', 91, 33, 182))
             if normal_rows:
-                draw_card('与野', normal_rows, *accent,
-                          hide_early=True, hide_yono_badge=True,
-                          logo_path=logo_path)
+                draw_card('与野', normal_rows, *accent, hide_early=True)
         else:
-            draw_card(job, job_rows, *accent,
-                      hide_early=False, logo_path=logo_path)
+            draw_card(job, job_rows, *accent)
 
-    # 早朝案件セクション
+    # ── 早朝案件 ──
     early_df = display_df[
-        display_df['job_early'].notna() & (display_df['job_early'] != '')
-    ]
+        display_df['job_early'].notna() & (display_df['job_early'] != '')]
     if not early_df.empty:
         draw_section_label('早朝案件')
-        for early_job, grp in early_df.groupby('job_early'):
-            ec = EARLY_COLORS.get(early_job, (13, 71, 161))
-            draw_card(early_job, grp.to_dict('records'), *ec, hide_early=True)
+        for ej, grp in early_df.groupby('job_early'):
+            ec = EARLY_COLORS.get(ej, (13, 71, 161))
+            draw_card(ej, grp.to_dict('records'), *ec, hide_early=True)
 
-    # ────────────────────────────────
-    # フッター（ページ下端固定）
-    # ────────────────────────────────
+    # ── フッター ──
     fy = PAGE_H - FOOTER_H
-    fill(*C_BG)
-    pdf.rect(0, fy, PAGE_W, FOOTER_H, 'F')
     draw(*C_BORDER)
     pdf.line(MARGIN, fy, MARGIN + CW, fy)
-
-    sf(7); ink(*C_MUTED)
-    pdf.set_xy(MARGIN, fy + 3)
-    pdf.cell(CW / 2, 5, t('Logistics Operations  —  シフト管理'), align='L')
-    pdf.set_xy(PAGE_W / 2, fy + 3)
-    pdf.cell(CW / 2, 5,
-             t(f'出力  {datetime.now().strftime("%Y.%m.%d  %H:%M")}'), align='R')
+    sf(6); ink(*C_MUTED)
+    pdf.set_xy(MARGIN, fy + 2)
+    pdf.cell(CW, 4, t(f'出力  {datetime.now().strftime("%Y.%m.%d  %H:%M")}'), align='R')
 
     return bytes(pdf.output())
 
