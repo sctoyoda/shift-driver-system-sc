@@ -1135,6 +1135,8 @@ def tab_view():
             default_val = datetime.strptime(st.session_state['view_date'], '%Y-%m-%d').date()
         except Exception:
             pass
+    # min/max の範囲内にクランプ
+    default_val = max(min_d, min(max_d, default_val))
 
     col_date, col_btn = st.columns([3, 1])
     with col_date:
