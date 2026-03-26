@@ -138,10 +138,19 @@ def setup_page():
 
     * { box-sizing: border-box; }
 
-    .main .block-container {
-        padding: 0 1rem 5rem 1rem;
-        max-width: 100%;
+    .main .block-container,
+    .stMainBlockContainer,
+    section[data-testid="stMain"] .block-container,
+    div[data-testid="stAppViewBlockContainer"] {
+        padding: 0.5rem 1rem 5rem 1rem !important;
+        max-width: 100% !important;
         font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+    }
+    /* Streamlit のデフォルト左右余白を除去 */
+    section[data-testid="stMain"] > div {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        max-width: 100% !important;
     }
     #MainMenu, footer, header { visibility: hidden; }
 
