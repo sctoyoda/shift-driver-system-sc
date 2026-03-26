@@ -924,7 +924,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     wd = WEEKDAY_JA[target_date.weekday()]
 
     # ── 寸法定数 ──
-    PAGE_W   = 95
+    PAGE_W   = 110
     MARGIN   = 4
     CW       = PAGE_W - MARGIN * 2
     DATE_BAR = 21       # ダークヘッダーバー高さ
@@ -971,12 +971,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     for job in MAIN_JOBS_ORDER:
         rows_pre = display_df_pre[display_df_pre['job_main'] == job].to_dict('records')
         if not rows_pre: continue
-        if job == '与野':
-            for ytype in ['spot', 'early_shift', 'normal']:
-                n = sum(1 for r in rows_pre if _get_yt(r) == ytype)
-                if n > 0: content_h += HDR_H + n * ROW_H + SPACING
-        else:
-            content_h += HDR_H + len(rows_pre) * ROW_H + SPACING
+        content_h += HDR_H + len(rows_pre) * ROW_H + SPACING
     if not early_df_pre.empty:
         content_h += SEC_H
         for _, grp in early_df_pre.groupby('job_early'):
@@ -1126,15 +1121,8 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         job_rows = display_df[display_df['job_main'] == job].to_dict('records')
         if not job_rows: continue
         accent = COLOR_MAP.get(job, (80, 80, 80))
-        if job == '与野':
-            spot_r  = [r for r in job_rows if _get_yt(r) == 'spot']
-            early_r = [r for r in job_rows if _get_yt(r) == 'early_shift']
-            norm_r  = [r for r in job_rows if _get_yt(r) == 'normal']
-            if spot_r:  draw_card('与野', spot_r,  *accent, hide_early=True, header_badge=('スポット', 7, 89, 133))
-            if early_r: draw_card('与野', early_r, *accent, hide_early=True, header_badge=('早番', 91, 33, 182))
-            if norm_r:  draw_card('与野', norm_r,  *accent, hide_early=True)
-        else:
-            draw_card(job, job_rows, *accent)
+        hide = (job == '与野')
+        draw_card(job, job_rows, *accent, hide_early=hide)
 
     # ── 早朝案件 ──
     early_df = display_df[
