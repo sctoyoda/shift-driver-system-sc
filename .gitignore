@@ -1,0 +1,15 @@
+# Streamlit secrets（パスワード等）- GitHubには上げない
+.streamlit/secrets.toml
+
+# データベース（シフトデータ）- GitHubには上げない
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# macOS
+.DS_Store
