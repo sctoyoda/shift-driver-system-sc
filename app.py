@@ -881,44 +881,18 @@ def generate_day_image(target_date_str: str, dpi: int = 200) -> bytes:
         return b''
 
     try:
-        import shutil as _shutil
-        import tempfile
-        from html2image import Html2Image
+        from weasyprint import HTML as WP_HTML, CSS as WP_CSS
 
-        browser = (
-            _shutil.which('chromium-browser')
-            or _shutil.which('chromium')
-            or '/usr/bin/chromium-browser'
+        pdf_bytes = WP_HTML(string=html_content).write_pdf(
+            stylesheets=[WP_CSS(string='@page { size: 420px auto; margin: 0; }')]
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            hti = Html2Image(
-                browser_executable=browser,
-                output_path=tmpdir,
-                custom_flags=[
-                    '--no-sandbox',
-                    '--disable-gpu',
-                    '--disable-dev-shm-usage',
-                    '--disable-software-rasterizer',
-                ],
-            )
-            hti.screenshot(html_str=html_content, save_as='shift.png', size=(420, 3000))
-            png_path = os.path.join(tmpdir, 'shift.png')
-            if not os.path.exists(png_path):
-                raise FileNotFoundError('screenshot not created')
-
-            # 下部の余白を自動クロップ（背景色 #f2f1ed を除去）
-            img = PILImage.open(png_path).convert('RGB')
-            arr = np.array(img)
-            bg = np.array([242, 241, 237])
-            row_is_bg = np.all(np.abs(arr[:, :, :3].astype(int) - bg) < 10, axis=(1, 2))
-            rows_with_content = np.where(~row_is_bg)[0]
-            if len(rows_with_content) > 0:
-                crop_h = int(rows_with_content[-1]) + 24
-                img = img.crop((0, 0, img.width, crop_h))
-
-            buf = io.BytesIO()
-            img.save(buf, 'PNG', optimize=True)
-            return buf.getvalue()
+        doc = pdfium.PdfDocument(pdf_bytes)
+        page = doc[0]
+        bitmap = page.render(scale=dpi / 72)
+        img = bitmap.to_pil()
+        buf = io.BytesIO()
+        img.save(buf, 'PNG', optimize=True)
+        return buf.getvalue()
 
     except Exception:
         # フォールバック: 従来の PDF→PNG 方式
