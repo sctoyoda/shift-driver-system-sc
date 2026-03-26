@@ -696,19 +696,242 @@ def generate_day_csv(target_date_str: str) -> bytes:
     return out.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
 
 
+def _build_shift_html(target_date_str: str) -> str:
+    """Web UIと同じデザインのスタンドアロンHTMLを生成する"""
+    df = db.get_shifts_by_date(target_date_str)
+    try:
+        target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return ''
+    if df.empty:
+        return ''
+
+    driver_configs = db.get_all_driver_configs()
+    display_df = df[~df['job_main'].fillna('').isin(EXCLUDED_JOBS)].copy()
+
+    date_html = _date_chip_html(target_date)
+
+    cards_html = '<div class="section-label">案件別稼働</div>'
+    for job in MAIN_JOBS_ORDER:
+        job_df = display_df[display_df['job_main'] == job]
+        if job_df.empty:
+            continue
+        color = JOB_COLORS.get(job, {'bg': '#fafafa', 'border': '#9e9e9e', 'header_bg': '#424242', 'header_txt': '#fff'})
+        rows_html = ''
+        for _, r in job_df.iterrows():
+            yono_type = _effective_yono_type(r, driver_configs) if job == '与野' else None
+            early = None if job == '与野' else r.get('job_early')
+            rows_html += _driver_row_html(r['driver'], early, bool(r.get('special_flag')), yono_type, yokonori=bool(r.get('yokonori_flag')))
+        cards_html += _card_html(job, color, rows_html, len(job_df))
+
+    early_section_html = ''
+    early_df = display_df[display_df['job_early'].notna() & (display_df['job_early'] != '')]
+    if not early_df.empty:
+        early_section_html = '<div class="section-label">早朝案件</div>'
+        for early_job, grp in early_df.groupby('job_early'):
+            color = EARLY_JOB_COLORS.get(early_job, {'bg': '#eef2ff', 'border': '#3949ab', 'header_bg': '#283593', 'header_txt': '#fff'})
+            rows_html = ''.join(
+                f'<div class="driver-row"><span class="d-name">{r["driver"]}</span></div>'
+                for _, r in grp.iterrows()
+            )
+            early_section_html += _card_html(early_job, color, rows_html, len(grp))
+
+    total_html = (
+        f'<div class="total-bar">'
+        f'<span class="t-label">Total</span>'
+        f'<span class="t-num">{len(display_df)}</span>'
+        f'<span class="t-unit">名</span>'
+        f'</div>'
+    )
+
+    css = '''
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    background: #f2f1ed;
+    padding: 0.8rem 0.6rem 1.5rem;
+    font-family: "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+    width: 420px;
+}
+.date-block {
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    padding: 1.2rem 0 1rem;
+    border-bottom: 1px solid #e0ddd6;
+    margin-bottom: 1.3rem;
+}
+.date-block .d-num {
+    font-family: "Courier New", monospace;
+    font-size: 3rem;
+    font-weight: 500;
+    color: #1a1a1a;
+    line-height: 1;
+    white-space: nowrap;
+}
+.date-block .d-slash {
+    font-family: "Courier New", monospace;
+    font-size: 1.8rem;
+    color: #ccc;
+    line-height: 1;
+}
+.date-block .d-meta { display: flex; flex-direction: column; gap: 0.15rem; }
+.date-block .d-year {
+    font-family: "Courier New", monospace;
+    font-size: 0.65rem;
+    color: #aaa;
+}
+.date-block .d-wd { font-size: 1rem; font-weight: 700; color: #1a1a1a; }
+.date-block .d-badge {
+    margin-left: auto;
+    font-family: "Courier New", monospace;
+    font-size: 0.6rem;
+    font-weight: 500;
+    padding: 0.3rem 0.75rem;
+    border-radius: 2px;
+}
+.badge-weekday { background: #e8f0fe; color: #1a56db; border: 1px solid #c3d6fd; }
+.badge-weekend { background: #fef3f2; color: #c0392b; border: 1px solid #fbd3cf; }
+.badge-holiday { background: #fef3f2; color: #c0392b; border: 1px solid #fbd3cf; }
+.section-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #aaa;
+    margin: 1.5rem 0 0.7rem;
+}
+.job-card {
+    background: #ffffff;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.55rem;
+    border: 1px solid #e8e6df;
+    border-left-width: 4px;
+}
+.job-card-header {
+    padding: 0.65rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #f0ede6;
+    background: #faf9f6;
+}
+.job-card-title { font-size: 1rem; font-weight: 700; color: #333; }
+.job-card-count {
+    font-family: "Courier New", monospace;
+    font-size: 0.75rem;
+    color: #aaa;
+}
+.job-card-body { background: #fff; }
+.driver-row {
+    display: flex;
+    align-items: center;
+    padding: 0.72rem 1rem;
+    border-bottom: 1px solid #f5f3ef;
+    gap: 0.6rem;
+}
+.driver-row:last-child { border-bottom: none; }
+.d-name { font-size: 1rem; font-weight: 500; color: #1a1a1a; flex: 1; }
+.d-badges { display: flex; gap: 0.3rem; align-items: center; }
+.badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.25rem 0.65rem;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+.badge-special     { background: #b91c1c; color: #fff; }
+.badge-early       { background: #1e40af; color: #fff; }
+.badge-spot        { background: #075985; color: #fff; }
+.badge-early-shift { background: #5b21b6; color: #fff; }
+.badge-yokonori    { background: #b45309; color: #fff; }
+.total-bar {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    padding: 0.8rem 0.2rem 0;
+    border-top: 1px solid #e8e6df;
+    margin-top: 0.5rem;
+}
+.t-label { font-size: 0.72rem; color: #aaa; }
+.t-num { font-family: "Courier New", monospace; font-size: 1.15rem; font-weight: 500; color: #1a1a1a; }
+.t-unit { font-size: 0.75rem; color: #888; }
+'''
+
+    return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>{css}</style>
+</head>
+<body>
+{date_html}
+{cards_html}
+{early_section_html}
+{total_html}
+</body>
+</html>"""
+
+
 def generate_day_image(target_date_str: str, dpi: int = 200) -> bytes:
-    """シフト表をPNG画像として返す。"""
-    pdf_bytes = generate_day_pdf(target_date_str)
-    if not pdf_bytes:
+    """シフト表をPNG画像として返す（Web UIと同じHTMLデザイン）。"""
+    html_content = _build_shift_html(target_date_str)
+    if not html_content:
         return b''
-    doc = pdfium.PdfDocument(pdf_bytes)
-    page = doc[0]
-    scale = dpi / 72
-    bitmap = page.render(scale=scale)
-    img = bitmap.to_pil()
-    buf = io.BytesIO()
-    img.save(buf, 'PNG', optimize=True)
-    return buf.getvalue()
+
+    try:
+        import shutil as _shutil
+        import tempfile
+        from html2image import Html2Image
+
+        browser = (
+            _shutil.which('chromium-browser')
+            or _shutil.which('chromium')
+            or '/usr/bin/chromium-browser'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hti = Html2Image(
+                browser_executable=browser,
+                output_path=tmpdir,
+                custom_flags=[
+                    '--no-sandbox',
+                    '--disable-gpu',
+                    '--disable-dev-shm-usage',
+                    '--disable-software-rasterizer',
+                ],
+            )
+            hti.screenshot(html_str=html_content, save_as='shift.png', size=(420, 3000))
+            png_path = os.path.join(tmpdir, 'shift.png')
+            if not os.path.exists(png_path):
+                raise FileNotFoundError('screenshot not created')
+
+            # 下部の余白を自動クロップ（背景色 #f2f1ed を除去）
+            img = PILImage.open(png_path).convert('RGB')
+            arr = np.array(img)
+            bg = np.array([242, 241, 237])
+            row_is_bg = np.all(np.abs(arr[:, :, :3].astype(int) - bg) < 10, axis=(1, 2))
+            rows_with_content = np.where(~row_is_bg)[0]
+            if len(rows_with_content) > 0:
+                crop_h = int(rows_with_content[-1]) + 24
+                img = img.crop((0, 0, img.width, crop_h))
+
+            buf = io.BytesIO()
+            img.save(buf, 'PNG', optimize=True)
+            return buf.getvalue()
+
+    except Exception:
+        # フォールバック: 従来の PDF→PNG 方式
+        pdf_bytes = generate_day_pdf(target_date_str)
+        if not pdf_bytes:
+            return b''
+        doc = pdfium.PdfDocument(pdf_bytes)
+        page = doc[0]
+        bitmap = page.render(scale=dpi / 72)
+        img = bitmap.to_pil()
+        buf = io.BytesIO()
+        img.save(buf, 'PNG', optimize=True)
+        return buf.getvalue()
 
 
 def _load_font(pdf: FPDF):
