@@ -1158,7 +1158,8 @@ def tab_view():
     img_data = generate_day_image(view_date_str)
     st.download_button('🖼️ 画像として保存', data=img_data,
                        file_name=f'shift_{view_date_str}.png', mime='image/png',
-                       disabled=not img_data, use_container_width=True)
+                       disabled=not img_data, use_container_width=True,
+                       key='dl_view')
 
 
 # ────────────────────────────────────────────────
@@ -1316,7 +1317,8 @@ def tab_download():
         img_data = generate_day_image(sel_date)
         st.download_button('🖼️ 画像として保存', data=img_data,
                            file_name=f'shift_{sel_date}.png', mime='image/png',
-                           disabled=not img_data, use_container_width=True)
+                           disabled=not img_data, use_container_width=True,
+                           key='dl_download')
 
     st.markdown('<hr class="thin-divider">', unsafe_allow_html=True)
     st.markdown(f'<div class="section-label">{sel_month} データ一覧</div>', unsafe_allow_html=True)
