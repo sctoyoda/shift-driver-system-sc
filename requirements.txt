@@ -6,4 +6,3 @@ Pillow>=10.2.0
 fpdf2>=2.7.9
 jpholiday>=0.1.8
 pypdfium2>=4.0.0
-weasyprint>=61.0

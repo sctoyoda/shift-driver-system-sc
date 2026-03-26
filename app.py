@@ -875,37 +875,17 @@ body {
 
 
 def generate_day_image(target_date_str: str, dpi: int = 200) -> bytes:
-    """シフト表をPNG画像として返す（Web UIと同じHTMLデザイン）。"""
-    html_content = _build_shift_html(target_date_str)
-    if not html_content:
+    """シフト表をPNG画像として返す。"""
+    pdf_bytes = generate_day_pdf(target_date_str)
+    if not pdf_bytes:
         return b''
-
-    try:
-        from weasyprint import HTML as WP_HTML, CSS as WP_CSS
-
-        pdf_bytes = WP_HTML(string=html_content).write_pdf(
-            stylesheets=[WP_CSS(string='@page { size: 420px auto; margin: 0; }')]
-        )
-        doc = pdfium.PdfDocument(pdf_bytes)
-        page = doc[0]
-        bitmap = page.render(scale=dpi / 72)
-        img = bitmap.to_pil()
-        buf = io.BytesIO()
-        img.save(buf, 'PNG', optimize=True)
-        return buf.getvalue()
-
-    except Exception:
-        # フォールバック: 従来の PDF→PNG 方式
-        pdf_bytes = generate_day_pdf(target_date_str)
-        if not pdf_bytes:
-            return b''
-        doc = pdfium.PdfDocument(pdf_bytes)
-        page = doc[0]
-        bitmap = page.render(scale=dpi / 72)
-        img = bitmap.to_pil()
-        buf = io.BytesIO()
-        img.save(buf, 'PNG', optimize=True)
-        return buf.getvalue()
+    doc = pdfium.PdfDocument(pdf_bytes)
+    page = doc[0]
+    bitmap = page.render(scale=dpi / 72)
+    img = bitmap.to_pil()
+    buf = io.BytesIO()
+    img.save(buf, 'PNG', optimize=True)
+    return buf.getvalue()
 
 
 def _load_font(pdf: FPDF):
@@ -943,10 +923,17 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     driver_configs = db.get_all_driver_configs()
     wd = WEEKDAY_JA[target_date.weekday()]
 
-    PAGE_W  = 210
-    PAGE_H  = 297
-    MARGIN  = 8
-    CW      = PAGE_W - MARGIN * 2
+    # ── スマホ幅・高さ自動計算 ──
+    PAGE_W   = 95        # mm（モバイルフレンドリー幅）
+    MARGIN   = 5
+    CW       = PAGE_W - MARGIN * 2
+    ROW_H    = 9.5
+    CARD_HDR = 9.5
+    SPACING  = 1.5
+    SEC_LBL  = 6.0
+    DATE_H   = 24.0
+    LEFT_BAR = 4.0
+    FOOTER_H = 7.0
 
     C_BG        = (242, 241, 237)
     C_CARD_BG   = (255, 255, 255)
@@ -971,7 +958,34 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         'spot':        (( 7, 89, 133), 'スポット'),
     }
 
-    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    display_df_pre = df[~df['job_main'].fillna('').isin(EXCLUDED_JOBS)]
+    early_df_pre   = display_df_pre[
+        display_df_pre['job_early'].notna() & (display_df_pre['job_early'] != '')]
+
+    # 与野タイプ判定（高さ計算用）
+    def _get_yt_pre(row):
+        v = row.get('yono_type', 'normal')
+        return v if v and v != 'normal' else driver_configs.get(row.get('driver', ''), 'normal')
+
+    # コンテンツ高さを事前計算
+    content_h = SEC_LBL
+    for job in MAIN_JOBS_ORDER:
+        job_rows_pre = display_df_pre[display_df_pre['job_main'] == job].to_dict('records')
+        if not job_rows_pre: continue
+        if job == '与野':
+            for ytype in ['spot', 'early_shift', 'normal']:
+                n = sum(1 for r in job_rows_pre if _get_yt_pre(r) == ytype)
+                if n > 0: content_h += CARD_HDR + n * ROW_H + SPACING
+        else:
+            content_h += CARD_HDR + len(job_rows_pre) * ROW_H + SPACING
+    if not early_df_pre.empty:
+        content_h += SEC_LBL
+        for _, grp in early_df_pre.groupby('job_early'):
+            content_h += CARD_HDR + len(grp) * ROW_H + SPACING
+
+    PAGE_H = DATE_H + 4 + content_h + FOOTER_H + 3
+
+    pdf = FPDF(orientation='P', unit='mm', format=(PAGE_W, PAGE_H))
     pdf.add_page()
     pdf.set_auto_page_break(auto=False)
     font = _load_font(pdf)
@@ -985,75 +999,37 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     # ページ背景
     fill(*C_BG); pdf.rect(0, 0, PAGE_W, PAGE_H, 'F')
 
-    display_df_pre = df[~df['job_main'].fillna('').isin(EXCLUDED_JOBS)]
-    early_df_pre   = display_df_pre[
-        display_df_pre['job_early'].notna() & (display_df_pre['job_early'] != '')]
-
-    # ── 高さ推算してスケール計算 ──
-    BASE_ROW_H   = 10.0
-    BASE_HDR_H   = 10.0
-    BASE_SPACING = 1.5
-    BASE_SEC_LBL = 6.0
-    DATE_H       = 28.0
-    FOOTER_H     = 7.0
-    AVAIL_H      = PAGE_H - DATE_H - 4 - FOOTER_H
-
-    def _est_h(nrows): return BASE_HDR_H + nrows * BASE_ROW_H + BASE_SPACING
-
-    need = BASE_SEC_LBL
-    for job in MAIN_JOBS_ORDER:
-        if job == '与野':
-            n = len(display_df_pre[display_df_pre['job_main'] == '与野'])
-            if n > 0:
-                need += _est_h(n) + (BASE_HDR_H + BASE_SPACING) * 2
-        else:
-            n = len(display_df_pre[display_df_pre['job_main'] == job])
-            if n > 0: need += _est_h(n)
-    grp_early = {}
-    for _, r in early_df_pre.iterrows():
-        grp_early[r['job_early']] = grp_early.get(r['job_early'], 0) + 1
-    if grp_early:
-        need += BASE_SEC_LBL
-        for n in grp_early.values(): need += _est_h(n)
-
-    scale    = (AVAIL_H / need) if need > 0 else 1.0
-    ROW_H    = BASE_ROW_H   * scale
-    CARD_HDR = BASE_HDR_H   * scale
-    SPACING  = BASE_SPACING * scale
-    SEC_LBL  = BASE_SEC_LBL * scale
-    LEFT_BAR = 4.0
-
     # ── 日付ヘッダー（WebUI スタイル）──
     is_we    = _is_weekend(target_date)
     day_type = '休日' if is_we else '平日'
 
-    sf(22); ink(*C_TEXT)
+    sf(18); ink(*C_TEXT)
     date_str = f"{target_date.month:02d}  /  {target_date.day:02d}"
     pdf.set_xy(MARGIN, 4)
-    pdf.cell(CW * 0.62, 14, t(date_str), align='L')
+    pdf.cell(40, 12, t(date_str), align='L')
 
-    sf(7); ink(*C_MUTED)
-    pdf.set_xy(MARGIN + CW * 0.62, 5)
-    pdf.cell(CW * 0.38, 5, str(target_date.year), align='L')
+    sf(6); ink(*C_MUTED)
+    pdf.set_xy(MARGIN + 40, 5)
+    pdf.cell(20, 4, str(target_date.year), align='L')
 
-    sf(11); ink(*C_TEXT)
-    pdf.set_xy(MARGIN + CW * 0.62, 11)
-    pdf.cell(CW * 0.38, 7, t(f'{wd}曜日'), align='L')
+    sf(9); ink(*C_TEXT)
+    pdf.set_xy(MARGIN + 40, 10)
+    pdf.cell(20, 6, t(f'{wd}曜日'), align='L')
 
     # 右端: 平日/休日バッジ
     is_we = _is_weekend(target_date)
-    bx, bw_badge, bh_badge = PAGE_W - MARGIN - 18, 18, 6
+    bw_badge, bh_badge = 16, 5
+    bx = PAGE_W - MARGIN - bw_badge
     if is_we:
-        fill(254, 242, 242); draw(251, 147, 147)
-        ink(192, 57, 43)
+        fill(254, 242, 242); ink(192, 57, 43)
+        pdf.set_draw_color(251, 147, 147)
     else:
-        fill(232, 240, 254); draw(195, 214, 253)
-        ink(26, 86, 219)
-    pdf.set_draw_color(*((251,147,147) if is_we else (195,214,253)))
+        fill(232, 240, 254); ink(26, 86, 219)
+        pdf.set_draw_color(195, 214, 253)
     pdf.rect(bx, 6, bw_badge, bh_badge, 'FD')
     sf(6)
     pdf.set_xy(bx, 7)
-    pdf.cell(bw_badge, bh_badge - 2, t(day_type), align='C')
+    pdf.cell(bw_badge, bh_badge - 1, t(day_type), align='C')
 
     # 区切り線
     draw(*C_BORDER)
@@ -1061,7 +1037,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     pdf.set_y(DATE_H + 4)
 
     if df.empty:
-        sf(11); ink(*C_MUTED); pdf.set_x(MARGIN)
+        sf(10); ink(*C_MUTED); pdf.set_x(MARGIN)
         pdf.cell(CW, 10, t('データがありません。'), align='C')
         return bytes(pdf.output())
 
