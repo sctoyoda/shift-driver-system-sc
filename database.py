@@ -6,7 +6,9 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
-DB_PATH = Path(__file__).parent / "shift_data.db"
+# Fly.io の永続ボリューム(/data)があればそちらを使う
+_data_dir = Path("/data") if Path("/data").exists() else Path(__file__).parent
+DB_PATH = _data_dir / "shift_data.db"
 
 
 def init_db():
@@ -51,7 +53,12 @@ def init_db():
     try:
         c.execute("ALTER TABLE shifts ADD COLUMN yono_type TEXT DEFAULT 'normal'")
     except Exception:
-        pass  # 既に存在する場合はスキップ
+        pass
+    # shifts に yokonori_flag 列を追加（既存テーブルへの移行対応）
+    try:
+        c.execute("ALTER TABLE shifts ADD COLUMN yokonori_flag INTEGER DEFAULT 0")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -70,8 +77,8 @@ def save_shifts(shifts_data: list, upload_id: str, year_month: str):
 
     for shift in shifts_data:
         c.execute('''
-            INSERT INTO shifts (driver, date, job_main, job_early, special_flag, yono_type, upload_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO shifts (driver, date, job_main, job_early, special_flag, yono_type, yokonori_flag, upload_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             shift['driver'],
             shift['date'],
@@ -79,6 +86,7 @@ def save_shifts(shifts_data: list, upload_id: str, year_month: str):
             shift.get('job_early'),
             int(shift.get('special_flag', 0)),
             shift.get('yono_type', 'normal'),
+            int(shift.get('yokonori_flag', 0)),
             upload_id,
         ))
 

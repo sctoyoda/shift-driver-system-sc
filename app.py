@@ -331,6 +331,7 @@ def setup_page():
     .badge-early       { background: #1e40af; color: #fff; }
     .badge-spot        { background: #075985; color: #fff; }
     .badge-early-shift { background: #5b21b6; color: #fff; }
+    .badge-yokonori    { background: #b45309; color: #fff; }
 
     /* ── WARNING ── */
     .warning-card {
@@ -537,7 +538,8 @@ def _card_html(title: str, color: dict, drivers_html: str, count: int) -> str:
 
 
 def _driver_row_html(driver: str, job_early: Optional[str],
-                     special: bool, yono_type: Optional[str] = None) -> str:
+                     special: bool, yono_type: Optional[str] = None,
+                     yokonori: bool = False) -> str:
     badges = ''
     if job_early:
         badges += f'<span class="badge badge-early">{job_early}</span>'
@@ -545,6 +547,8 @@ def _driver_row_html(driver: str, job_early: Optional[str],
         badges += '<span class="badge badge-spot">スポット</span>'
     elif yono_type == 'early_shift':
         badges += '<span class="badge badge-early-shift">早番</span>'
+    if yokonori:
+        badges += '<span class="badge badge-yokonori">横乗り</span>'
     if special:
         badges += '<span class="badge badge-special">特殊</span>'
 
@@ -610,6 +614,7 @@ def render_shift_view(target_date_str: str):
             rows_html += _driver_row_html(
                 r['driver'], early,
                 bool(r.get('special_flag')), yono_type,
+                yokonori=bool(r.get('yokonori_flag')),
             )
         st.markdown(_card_html(job, color, rows_html, len(job_df)), unsafe_allow_html=True)
 
@@ -974,6 +979,13 @@ def generate_day_pdf(target_date_str: str) -> bytes:
                     fill(br, bg_c, bb); ink(255, 255, 255); sf(6)
                     pdf.set_xy(card_x + CW - bw - 3, row_y + (ROW_H - tag_h) / 2)
                     pdf.cell(bw, tag_h, t(YONO_BADGE_LABEL[yt]), fill=True, align='C')
+
+            # 横乗りバッジ
+            if row.get('yokonori_flag'):
+                yo_w = 13.0
+                fill(180, 83, 9); ink(255, 255, 255); sf(6)
+                pdf.set_xy(card_x + CW - yo_w - 2, row_y + (ROW_H - tag_h) / 2)
+                pdf.cell(yo_w, tag_h, t('横乗り'), fill=True, align='C')
 
             # 特殊フラグ（右端から2mm内側に右寄せ）
             if row.get('special_flag'):

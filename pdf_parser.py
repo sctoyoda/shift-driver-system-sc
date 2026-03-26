@@ -48,9 +48,16 @@ EARLY_PREFIXES = [
 # メイン案件照合パターン（長い文字列を先に照合）
 # value は正規化後のジョブ名
 MAIN_JOB_PATTERNS = [
+    ('高島平横', '高島平'),
+    ('高島横',  '高島平'),
     ('高島平',  '高島平'),
+    ('東天紅横', '東天紅'),
+    ('東天横',  '東天紅'),
     ('東天紅',  '東天紅'),
+    ('ハナマサ横','ハナマサ'),
+    ('ハナ横',  'ハナマサ'),
     ('ハナマサ','ハナマサ'),
+    ('イイダ横', 'イイダ'),
     ('イイダ',  'イイダ'),
     # 与野の各バリアント（数字 / 横 は全て与野に正規化）
     ('与野横',  '与野'),
@@ -61,7 +68,9 @@ MAIN_JOB_PATTERNS = [
     ('与野',    '与野'),
     # 北戸田は「与野エリアの時間バリアント」として与野に正規化
     ('北戸田',  '与野'),
+    ('川口横',  '川口'),
     ('川口',    '川口'),
+    ('巣鴨横',  '巣鴨'),
     ('巣鴨',    '巣鴨'),
     ('草加',    '草加'),
     ('ダイオ',  'ダイオ'),
@@ -127,7 +136,8 @@ def parse_cell_text(raw: str) -> dict:
                 job_main = normalized
                 break
 
-    return {'job_early': job_early, 'job_main': job_main}
+    is_yokonori = '横' in text
+    return {'job_early': job_early, 'job_main': job_main, 'is_yokonori': is_yokonori}
 
 
 # ────────────────────────────────────────────────
@@ -443,12 +453,13 @@ def _parse_table_page(page, year_month: str) -> list:
                 continue
 
             shifts.append({
-                'driver':       driver,
-                'date':         full_date,
-                'job_main':     job_info['job_main'],
-                'job_early':    job_info['job_early'],
-                'special_flag': special_flag,
-                'yono_type':    yono_type,
+                'driver':        driver,
+                'date':          full_date,
+                'job_main':      job_info['job_main'],
+                'job_early':     job_info['job_early'],
+                'special_flag':  special_flag,
+                'yono_type':     yono_type,
+                'yokonori_flag': 1 if job_info.get('is_yokonori') else 0,
             })
 
     return shifts
