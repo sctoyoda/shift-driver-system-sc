@@ -704,14 +704,29 @@ def generate_day_image(target_date_str: str, dpi: int = 200) -> bytes:
 
 
 def _load_font(pdf: FPDF):
+    import glob
     base = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(base, 'fonts', 'NotoSansCJK.ttc'),   # リポジトリ同梱フォント（最優先）
+        # Streamlit Cloud: packages.txt で fonts-noto-cjk をインストール
+        '/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf',
         '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
         '/usr/share/fonts/noto-cjk/NotoSansCJKjp-Regular.otf',
+        # リポジトリ同梱フォント
+        os.path.join(base, 'fonts', 'NotoSansCJK.ttc'),
+        # macOS
         '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc',
         '/System/Library/Fonts/Hiragino Sans GB W3.ttc',
     ]
+    # /usr/share/fonts 以下を再帰検索（Streamlit Cloud の配置場所が変わる場合に対応）
+    for pattern in [
+        '/usr/share/fonts/**/*CJK*jp*.otf',
+        '/usr/share/fonts/**/*CJK*jp*.ttf',
+        '/usr/share/fonts/**/*Noto*CJK*.otf',
+        '/usr/share/fonts/**/*Noto*CJK*.ttc',
+    ]:
+        found = glob.glob(pattern, recursive=True)
+        candidates.extend(found)
+
     for path in candidates:
         if os.path.exists(path):
             try:
