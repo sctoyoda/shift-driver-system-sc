@@ -1037,7 +1037,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         pdf.set_y(y + SEC_H)
 
     # ── カード（フルカラーヘッダー + 左ストライプ行）──
-    def draw_card(label, rows, ar, ag, ab, hide_early=False, header_badge=None):
+    def draw_card(label, rows, ar, ag, ab, hide_early=False, hide_badges=False, header_badge=None):
         if not rows: return
         cx, cy = MARGIN, pdf.get_y()
 
@@ -1102,12 +1102,13 @@ def generate_day_pdf(target_date_str: str) -> bytes:
                 pdf.set_xy(rx, ry + (ROW_H - tag_h) / 2)
                 pdf.cell(bw_p, tag_h, t(lbl_b), fill=True, align='C')
 
-            if row.get('special_flag'):  put_badge('特殊',  185, 28, 28)
-            if row.get('yokonori_flag'): put_badge('横乗り', 180, 83,  9)
-            yt = _get_yt(row)
-            if yt in YONO_BADGE:
-                (br, bg_c, bb), lbl_b = YONO_BADGE[yt]
-                put_badge(lbl_b, br, bg_c, bb)
+            if not hide_badges:
+                if row.get('special_flag'):  put_badge('特殊',  185, 28, 28)
+                if row.get('yokonori_flag'): put_badge('横乗り', 180, 83,  9)
+                yt = _get_yt(row)
+                if yt in YONO_BADGE:
+                    (br, bg_c, bb), lbl_b = YONO_BADGE[yt]
+                    put_badge(lbl_b, br, bg_c, bb)
 
             pdf.set_y(ry + ROW_H)
 
@@ -1129,7 +1130,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         draw_section_label('早朝案件')
         for ej, grp in early_df.groupby('job_early'):
             ec = EARLY_COLORS.get(ej, (13, 71, 161))
-            draw_card(ej, grp.to_dict('records'), *ec, hide_early=True)
+            draw_card(ej, grp.to_dict('records'), *ec, hide_early=True, hide_badges=True)
 
     # ── フッター ──
     fy = PAGE_H - FOOTER_H
