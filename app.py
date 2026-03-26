@@ -282,11 +282,10 @@ def setup_page():
         background: #faf9f6;
     }
     .job-card-title {
-        font-size: 0.72rem;
+        font-size: 1rem;
         font-weight: 700;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: #555;
+        letter-spacing: 0.08em;
+        color: #333;
     }
     .job-card-count {
         font-family: 'IBM Plex Mono', 'Courier New', monospace;
