@@ -84,7 +84,7 @@ JOB_COLORS = {
     'イイダ':   {'bg': '#fafafa', 'border': '#757575', 'header_bg': '#37474f', 'header_txt': '#ffffff'},
     '高島平':   {'bg': '#f0f7ff', 'border': '#1e88e5', 'header_bg': '#0d47a1', 'header_txt': '#ffffff'},
     '東天紅':   {'bg': '#fdf4ff', 'border': '#8e24aa', 'header_bg': '#6a1b9a', 'header_txt': '#ffffff'},
-    'ハナマサ': {'bg': '#fff0f6', 'border': '#e91e63', 'header_bg': '#880e4f', 'header_txt': '#ffffff'},
+    'ハナマサ': {'bg': '#fffde7', 'border': '#fdd835', 'header_bg': '#f9a825', 'header_txt': '#1a1a1a'},
 }
 
 EARLY_JOB_COLORS = {
@@ -644,9 +644,7 @@ def render_shift_view(target_date_str: str):
             rows_html = ''.join(
                 f'<div class="driver-row">'
                 f'<span class="d-name">{r["driver"]}</span>'
-                f'<span style="font-family:\'DM Mono\',monospace;font-size:0.65rem;'
-                f'color:#333;letter-spacing:0.08em;text-transform:uppercase;">'
-                f'{r["job_main"] or ""}</span></div>'
+                f'</div>'
                 for _, r in grp.iterrows()
             )
             st.markdown(_card_html(early_job, color, rows_html, len(grp)), unsafe_allow_html=True)
@@ -925,15 +923,15 @@ def generate_day_pdf(target_date_str: str) -> bytes:
 
     # ── 寸法定数 ──
     PAGE_W   = 110
-    MARGIN   = 4
+    MARGIN   = 3
     CW       = PAGE_W - MARGIN * 2
-    DATE_BAR = 21       # ダークヘッダーバー高さ
-    ROW_H    = 9.2
-    HDR_H    = 9.5      # フルカラーカードヘッダー高さ
-    SPACING  = 2.0
-    SEC_H    = 6.0
-    LEFT_BAR = 3.5
-    FOOTER_H = 6.0
+    DATE_BAR = 18
+    ROW_H    = 7.8
+    HDR_H    = 8.2
+    SPACING  = 1.0
+    SEC_H    = 4.5
+    LEFT_BAR = 3.0
+    FOOTER_H = 5.0
 
     C_BG     = (245, 244, 241)
     C_WHITE  = (255, 255, 255)
@@ -947,7 +945,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         '与野':    (67, 160,  71), '川口':    (245, 127,  23),
         '巣鴨':    (230,  81,   0),'イイダ':  ( 55,  71,  79),
         '高島平':  ( 13,  71, 161),'東天紅':  (106,  27, 154),
-        'ハナマサ':(136,  14,  79),
+        'ハナマサ':(240, 185,   0),
     }
     EARLY_COLORS = {
         'リネン': (13, 71, 161), 'リネン対面': (10, 48, 96),
@@ -998,26 +996,26 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     fill(*C_DARK); draw(*C_DARK)
     pdf.rect(0, 0, PAGE_W, DATE_BAR, 'F')
 
-    sf(16); ink(255, 255, 255)
-    pdf.set_xy(MARGIN, 3.5)
-    pdf.cell(42, 11, t(f"{target_date.month:02d}  /  {target_date.day:02d}"), align='L')
+    sf(14); ink(255, 255, 255)
+    pdf.set_xy(MARGIN, 2.5)
+    pdf.cell(42, 10, t(f"{target_date.month:02d}  /  {target_date.day:02d}"), align='L')
 
     sf(5); ink(100, 100, 100)
-    pdf.set_xy(MARGIN + 43, 4.5)
-    pdf.cell(18, 3.5, str(target_date.year), align='L')
+    pdf.set_xy(MARGIN + 43, 3)
+    pdf.cell(20, 3, str(target_date.year), align='L')
 
-    sf(8.5); ink(210, 210, 210)
-    pdf.set_xy(MARGIN + 43, 9.5)
-    pdf.cell(18, 6, t(f'{wd}曜日'), align='L')
+    sf(7.5); ink(210, 210, 210)
+    pdf.set_xy(MARGIN + 43, 7.5)
+    pdf.cell(20, 5, t(f'{wd}曜日'), align='L')
 
     is_we    = _is_weekend(target_date)
     day_type = '休日' if is_we else '平日'
-    bw_b, bh_b = 14, 5
+    bw_b, bh_b = 13, 4.5
     bx_b = PAGE_W - MARGIN - bw_b
     fill(150, 28, 28) if is_we else fill(25, 68, 145)
     draw(150, 28, 28) if is_we else draw(25, 68, 145)
     pdf.rect(bx_b, (DATE_BAR - bh_b) / 2, bw_b, bh_b, 'F')
-    sf(5.5); ink(255, 255, 255)
+    sf(5); ink(255, 255, 255)
     pdf.set_xy(bx_b, (DATE_BAR - bh_b) / 2 + 0.5)
     pdf.cell(bw_b, bh_b - 1, t(day_type), align='C')
 
@@ -1046,9 +1044,9 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         # フルカラーヘッダー
         fill(ar, ag, ab); draw(ar, ag, ab)
         pdf.rect(cx, cy, CW, HDR_H, 'F')
-        sf(8); ink(255, 255, 255)
-        pdf.set_xy(cx + 3, cy + 1.5)
-        pdf.cell(38, HDR_H - 3, t(label), align='L')
+        sf(7.5); ink(255, 255, 255)
+        pdf.set_xy(cx + 2.5, cy + 1.2)
+        pdf.cell(38, HDR_H - 2.4, t(label), align='L')
 
         # ヘッダーバッジ（スポット/早番）
         if header_badge:
@@ -1071,8 +1069,8 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         pdf.set_y(cy + HDR_H)
 
         # ドライバー行
-        tag_h  = ROW_H * 0.52
-        drv_fs = 8
+        tag_h  = ROW_H * 0.50
+        drv_fs = 7.5
 
         for row in rows:
             ry = pdf.get_y()
