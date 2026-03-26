@@ -1351,7 +1351,10 @@ def _check_password() -> bool:
 
     pwd = st.text_input('パスワード', type='password', placeholder='パスワードを入力')
     if st.button('ログイン', use_container_width=True):
-        correct = st.secrets.get('APP_PASSWORD') or os.environ.get('APP_PASSWORD', 'shift2026')
+        try:
+            correct = st.secrets['APP_PASSWORD']
+        except Exception:
+            correct = os.environ.get('APP_PASSWORD', 'shift2026')
         if pwd == correct:
             st.session_state['_authenticated'] = True
             st.rerun()
