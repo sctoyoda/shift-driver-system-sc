@@ -705,35 +705,64 @@ def generate_day_image(target_date_str: str, dpi: int = 200) -> bytes:
 
 def _load_font(pdf: FPDF):
     import glob
+    import subprocess
     base = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        # Streamlit Cloud: packages.txt で fonts-noto-cjk をインストール
+
+    candidates = []
+
+    # fc-list で日本語フォントを動的に検索（Linux/Streamlit Cloud）
+    try:
+        result = subprocess.run(
+            ['fc-list', ':lang=ja', '--format=%{file}\n'],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.strip().split('\n'):
+            p = line.strip()
+            if p and os.path.exists(p):
+                candidates.append(p)
+    except Exception:
+        pass
+
+    # 固定パス候補
+    candidates += [
         '/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf',
         '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
         '/usr/share/fonts/noto-cjk/NotoSansCJKjp-Regular.otf',
-        # リポジトリ同梱フォント
         os.path.join(base, 'fonts', 'NotoSansCJK.ttc'),
-        # macOS
         '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc',
         '/System/Library/Fonts/Hiragino Sans GB W3.ttc',
     ]
-    # /usr/share/fonts 以下を再帰検索（Streamlit Cloud の配置場所が変わる場合に対応）
     for pattern in [
         '/usr/share/fonts/**/*CJK*jp*.otf',
-        '/usr/share/fonts/**/*CJK*jp*.ttf',
+        '/usr/share/fonts/**/*Noto*jp*.otf',
         '/usr/share/fonts/**/*Noto*CJK*.otf',
         '/usr/share/fonts/**/*Noto*CJK*.ttc',
     ]:
-        found = glob.glob(pattern, recursive=True)
-        candidates.extend(found)
+        candidates.extend(glob.glob(pattern, recursive=True))
 
     for path in candidates:
-        if os.path.exists(path):
-            try:
-                pdf.add_font('CJK', '', path, uni=True)
-                return 'CJK'
-            except Exception:
-                pass
+        if not os.path.exists(path):
+            continue
+        try:
+            pdf.add_font('CJK', '', path, uni=True)
+            return 'CJK'
+        except Exception:
+            pass
+
+    # 最終フォールバック: NotoSansJP を /tmp にダウンロード
+    try:
+        import urllib.request
+        dl_path = '/tmp/NotoSansJP-Regular.otf'
+        if not os.path.exists(dl_path):
+            urllib.request.urlretrieve(
+                'https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf',
+                dl_path
+            )
+        pdf.add_font('CJK', '', dl_path, uni=True)
+        return 'CJK'
+    except Exception:
+        pass
+
     return None
 
 
