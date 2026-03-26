@@ -618,7 +618,7 @@ def render_shift_view(target_date_str: str):
         for _, r in job_df.iterrows():
             yono_type = _effective_yono_type(r, driver_configs) if job == '与野' else None
             # 与野は早朝案件バッジを表示しない（早朝案件セクションに別途表示）
-            early = None if job == '与野' else r.get('job_early')
+            early = None
             rows_html += _driver_row_html(
                 r['driver'], early,
                 bool(r.get('special_flag')), yono_type,
@@ -718,7 +718,7 @@ def _build_shift_html(target_date_str: str) -> str:
         rows_html = ''
         for _, r in job_df.iterrows():
             yono_type = _effective_yono_type(r, driver_configs) if job == '与野' else None
-            early = None if job == '与野' else r.get('job_early')
+            early = None
             rows_html += _driver_row_html(r['driver'], early, bool(r.get('special_flag')), yono_type, yokonori=bool(r.get('yokonori_flag')))
         cards_html += _card_html(job, color, rows_html, len(job_df))
 
@@ -1120,8 +1120,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         job_rows = display_df[display_df['job_main'] == job].to_dict('records')
         if not job_rows: continue
         accent = COLOR_MAP.get(job, (80, 80, 80))
-        hide = (job == '与野')
-        draw_card(job, job_rows, *accent, hide_early=hide)
+        draw_card(job, job_rows, *accent, hide_early=True)
 
     # ── 早朝案件 ──
     early_df = display_df[
