@@ -7,6 +7,7 @@ app.py - 軽貨物ドライバー シフト確認 Web アプリ (Streamlit)
   - ドライバーごとの与野タイプ設定（通常/スポット/早番）
   - CSV / PDFダウンロード
 """
+import hashlib
 import io
 import os
 import re
@@ -1616,10 +1617,47 @@ def tab_download():
 # メインエントリポイント
 # ────────────────────────────────────────────────
 
+def _auth_token(password: str) -> str:
+    return hashlib.sha256(f"shift-sys-{password}".encode()).hexdigest()[:40]
+
+
 def _check_password() -> bool:
     """パスワードゲート。認証済みなら True を返す。"""
     if st.session_state.get('_authenticated'):
         return True
+
+    try:
+        correct = st.secrets['APP_PASSWORD']
+    except Exception:
+        correct = os.environ.get('APP_PASSWORD', 'shift2026')
+
+    valid_token = _auth_token(correct)
+
+    # クエリパラメータ経由の自動ログイン（localStorage → JS → ?auth=token → ここ）
+    auth_param = st.query_params.get('auth', '')
+    if auth_param == valid_token:
+        st.session_state['_authenticated'] = True
+        st.query_params.clear()
+        st.rerun()
+        return True
+
+    # ページ読み込み時に localStorage を確認して自動リダイレクト
+    st.components.v1.html(f"""
+        <script>
+        (function() {{
+            try {{
+                var t = window.parent.localStorage.getItem('shift_auth_token');
+                if (t && t === '{valid_token}') {{
+                    var url = new URL(window.parent.location.href);
+                    if (!url.searchParams.get('auth')) {{
+                        url.searchParams.set('auth', t);
+                        window.parent.location.replace(url.toString());
+                    }}
+                }}
+            }} catch(e) {{}}
+        }})();
+        </script>
+    """, height=0)
 
     st.markdown("""
     <style>
@@ -1652,15 +1690,26 @@ def _check_password() -> bool:
     </div>
     """, unsafe_allow_html=True)
 
-    pwd = st.text_input('パスワード', type='password', placeholder='パスワードを入力')
+    pwd      = st.text_input('パスワード', type='password', placeholder='パスワードを入力')
+    remember = st.checkbox('このデバイスで記憶する')
+
     if st.button('ログイン', use_container_width=True):
-        try:
-            correct = st.secrets['APP_PASSWORD']
-        except Exception:
-            correct = os.environ.get('APP_PASSWORD', 'shift2026')
         if pwd == correct:
             st.session_state['_authenticated'] = True
-            st.rerun()
+            if remember:
+                # localStorage に保存して ?auth=token 付きでリロード
+                st.components.v1.html(f"""
+                    <script>
+                    try {{
+                        window.parent.localStorage.setItem('shift_auth_token', '{valid_token}');
+                        var url = new URL(window.parent.location.href);
+                        url.searchParams.set('auth', '{valid_token}');
+                        window.parent.location.replace(url.toString());
+                    }} catch(e) {{}}
+                    </script>
+                """, height=0)
+            else:
+                st.rerun()
         else:
             st.error('パスワードが違います')
     return False
