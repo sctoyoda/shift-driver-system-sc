@@ -12,8 +12,6 @@ import os
 import re
 import uuid
 from datetime import date, datetime, timedelta
-import pypdfium2 as pdfium
-
 from typing import Optional
 
 import numpy as np
@@ -872,15 +870,248 @@ body {
 </html>"""
 
 
-def generate_day_image(target_date_str: str, dpi: int = 200) -> bytes:
-    """シフト表をPNG画像として返す。"""
-    pdf_bytes = generate_day_pdf(target_date_str)
-    if not pdf_bytes:
+def generate_day_image(target_date_str: str) -> bytes:
+    """プロ級ダークテーマ 750px PNG renderer."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    df = db.get_shifts_by_date(target_date_str)
+    if df.empty:
         return b''
-    doc = pdfium.PdfDocument(pdf_bytes)
-    page = doc[0]
-    bitmap = page.render(scale=dpi / 72)
-    img = bitmap.to_pil()
+
+    try:
+        target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return b''
+
+    driver_configs = db.get_all_driver_configs()
+    wd = WEEKDAY_JA[target_date.weekday()]
+    is_weekend = target_date.weekday() >= 5
+
+    base = os.path.dirname(os.path.abspath(__file__))
+    font_path = os.path.join(base, 'fonts', 'ipaexg.ttf')
+
+    def load_font(size):
+        try:
+            return ImageFont.truetype(font_path, size)
+        except Exception:
+            return ImageFont.load_default()
+
+    def h2r(h):
+        s = h.lstrip('#')
+        return tuple(int(s[i:i+2], 16) for i in (0, 2, 4))
+
+    # フォント
+    f_year   = load_font(14)
+    f_date   = load_font(48)
+    f_sec    = load_font(12)
+    f_job    = load_font(18)
+    f_count  = load_font(13)
+    f_driver = load_font(16)
+    f_badge  = load_font(11)
+    f_footer = load_font(12)
+
+    # 案件カラー（PNG専用）
+    PNG_COLORS = {
+        '与野':    '#22c55e',
+        '川口':    '#f97316',
+        '巣鴨':    '#eab308',
+        'イイダ':  '#94a3b8',
+        '高島平':  '#38bdf8',
+        'ハナマサ': '#ca8a04',
+        '東天紅':  '#ef4444',
+    }
+    PNG_EARLY_COLORS = {
+        'リネン':      '#3b82f6',
+        'リネン対面':  '#3b82f6',
+        'リネン2回線': '#3b82f6',
+        '洗濯':        '#4ade80',
+        'カゴ回収':    '#94a3b8',
+    }
+    PNG_DISPLAY = {
+        '与野':    'イオン与野',
+        '川口':    'オニゴー川口',
+        '巣鴨':    '西友巣鴨',
+        'イイダ':  'イイダ',
+        '高島平':  '高島平',
+        'ハナマサ': 'ハナマサ',
+        '東天紅':  '東天紅',
+    }
+
+    # レイアウト定数
+    W         = 750
+    PAD       = 28
+    BG        = h2r('#0f1929')
+    CARD_BG   = h2r('#1a2540')
+    CARD_R    = 12
+    BAR_W     = 6
+    CARD_GAP  = 16
+    HDR_TOP   = 24    # ヘッダー上余白
+    HDR_BOT   = 20    # ヘッダー下余白
+    ROW_H     = 40    # ドライバー1行高さ
+    JOB_HDR_H = 52    # カードのジョブヘッダー行高さ
+    CARD_BOT  = 8     # カード内下余白
+    SEC_H     = 44    # セクション区切り高さ
+    FOOTER_H  = 48
+
+    display_df = df[df['job_main'].notna() & (df['job_main'] != '')].copy()
+    early_df   = df[df['job_early'].notna() & (df['job_early'] != '')].copy()
+
+    JOB_ORDER = ['与野', '川口', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ']
+    daytime_jobs = [j for j in JOB_ORDER if not display_df[display_df['job_main'] == j].empty]
+    for j in display_df['job_main'].unique():
+        if j not in daytime_jobs:
+            daytime_jobs.append(j)
+    early_jobs = list(early_df['job_early'].dropna().unique()) if not early_df.empty else []
+
+    # ── 高さ計算 ──
+    HDR_H = HDR_TOP + 18 + 6 + 56 + HDR_BOT   # 年 + 日付 + 余白
+    total_h = HDR_H + SEC_H
+    for job in daytime_jobs:
+        n = len(display_df[display_df['job_main'] == job])
+        total_h += JOB_HDR_H + n * ROW_H + CARD_BOT + CARD_GAP
+    if early_jobs:
+        total_h += SEC_H
+        for ej in early_jobs:
+            n = len(early_df[early_df['job_early'] == ej])
+            total_h += JOB_HDR_H + n * ROW_H + CARD_BOT + CARD_GAP
+    total_h += FOOTER_H
+
+    img  = Image.new('RGB', (W, total_h), BG)
+    draw = ImageDraw.Draw(img)
+
+    # ── ヘッダー ──
+    year_txt = f"{target_date.year}年"
+    date_txt = f"{target_date.month}月{target_date.day}日（{wd}）"
+
+    draw.text((PAD, HDR_TOP), year_txt, font=f_year, fill=h2r('#64748b'), anchor='lt')
+    date_y = HDR_TOP + 18 + 6
+    draw.text((PAD, date_y), date_txt, font=f_date, fill='white', anchor='lt')
+
+    # 平日/土日バッジ（右端・日付テキスト中央に合わせる）
+    badge_txt = '土日' if is_weekend else '平日'
+    badge_col = h2r('#f97316') if is_weekend else h2r('#3b82f6')
+    bw  = int(draw.textlength(badge_txt, font=f_count)) + 24
+    BH  = 28
+    bx  = W - PAD - bw
+    by  = date_y + 14   # 48pxフォントの中央付近
+    draw.rounded_rectangle([bx, by, bx + bw, by + BH], radius=BH // 2, fill=badge_col)
+    draw.text((bx + 12, by + BH // 2), badge_txt, font=f_count, fill='white', anchor='lm')
+
+    y = HDR_H
+
+    # ── セクション区切り ──
+    def draw_section_label(label):
+        nonlocal y
+        line_y = y + SEC_H // 2
+        draw.line([(PAD, line_y), (W - PAD, line_y)], fill=h2r('#2d3d5a'), width=1)
+        lw = int(draw.textlength(label, font=f_sec)) + 16
+        lx = PAD + 12
+        # 線の上にラベル背景（BG色で線を隠す）
+        draw.rectangle([lx - 8, line_y - 9, lx + lw, line_y + 9], fill=BG)
+        draw.text((lx, line_y), label, font=f_sec, fill=h2r('#94a3b8'), anchor='lm')
+        y += SEC_H
+
+    # ── カード描画 ──
+    def draw_card(display_name, job_color_hex, rows, hide_badges=False):
+        nonlocal y
+        jcol = h2r(job_color_hex)
+        n     = len(rows)
+        card_h = JOB_HDR_H + n * ROW_H + CARD_BOT
+
+        cx0, cy0 = PAD, y
+        cx1, cy1 = W - PAD, y + card_h
+
+        # カード背景
+        draw.rounded_rectangle([cx0, cy0, cx1, cy1], radius=CARD_R, fill=CARD_BG)
+        # 左カラーバー：全体を案件カラーで角丸描画後、右部分をCARD_BGで上書き
+        draw.rounded_rectangle([cx0, cy0, cx0 + CARD_R * 2, cy1], radius=CARD_R, fill=jcol)
+        draw.rectangle([cx0 + BAR_W, cy0, cx0 + CARD_R * 2, cy1], fill=CARD_BG)
+
+        # カードヘッダー行
+        hdr_mid = cy0 + JOB_HDR_H // 2
+        draw.text((cx0 + BAR_W + 16, hdr_mid), display_name,
+                  font=f_job, fill=jcol, anchor='lm')
+        cnt_txt = f"{n}名"
+        draw.text((cx1 - 16, hdr_mid), cnt_txt, font=f_count,
+                  fill=h2r('#94a3b8'), anchor='rm')
+
+        # ヘッダー下区切り線
+        sep_y = cy0 + JOB_HDR_H
+        draw.line([(cx0 + BAR_W + 8, sep_y), (cx1 - 8, sep_y)],
+                  fill=h2r('#2d3d5a'), width=1)
+
+        # 担当者行
+        BADGE_H  = 20
+        BADGE_PD = 7
+        BADGE_GAP = 5
+        for i, row in enumerate(rows):
+            driver  = row['driver']
+            ry      = cy0 + JOB_HDR_H + i * ROW_H
+            row_mid = ry + ROW_H // 2
+
+            # 左の小丸ドット
+            DOT_R = 4
+            dot_x = cx0 + BAR_W + 20
+            draw.ellipse([dot_x - DOT_R, row_mid - DOT_R,
+                          dot_x + DOT_R, row_mid + DOT_R], fill=jcol)
+
+            # ドライバー名
+            draw.text((dot_x + DOT_R + 10, row_mid), driver,
+                      font=f_driver, fill='white', anchor='lm')
+
+            # バッジ
+            if not hide_badges:
+                badges = []
+                cfg = driver_configs.get(driver, 'normal')
+                if cfg == 'spot':
+                    badges.append(('スポット', '#1e3a5f', '#60a5fa'))
+                elif cfg == 'early_shift':
+                    badges.append(('早番', '#14532d', '#4ade80'))
+                if row.get('yokonori_flag', 0):
+                    badges.append(('横乗り', '#4a1d4a', '#e879f9'))
+                if row.get('special_flag', 0):
+                    badges.append(('特殊', '#450a0a', '#f87171'))
+
+                bx = cx1 - 12
+                for btxt, bbg, bfg in reversed(badges):
+                    bw = int(draw.textlength(btxt, font=f_badge)) + BADGE_PD * 2
+                    bx -= bw
+                    by = row_mid - BADGE_H // 2
+                    draw.rounded_rectangle([bx, by, bx + bw, by + BADGE_H],
+                                          radius=BADGE_H // 2, fill=h2r(bbg))
+                    draw.text((bx + BADGE_PD, row_mid), btxt,
+                              font=f_badge, fill=h2r(bfg), anchor='lm')
+                    bx -= BADGE_GAP
+
+            # 行間区切り線（最後の行は除く）
+            if i < n - 1:
+                draw.line([(cx0 + BAR_W + 8, ry + ROW_H),
+                           (cx1 - 8, ry + ROW_H)],
+                          fill=h2r('#2d3d5a'), width=1)
+
+        y += card_h + CARD_GAP
+
+    # ── メイン案件 ──
+    draw_section_label('メイン案件')
+    for job in daytime_jobs:
+        job_rows = display_df[display_df['job_main'] == job].to_dict('records')
+        draw_card(PNG_DISPLAY.get(job, job),
+                  PNG_COLORS.get(job, '#94a3b8'),
+                  job_rows, hide_badges=False)
+
+    # ── 早朝案件 ──
+    if early_jobs:
+        draw_section_label('早朝案件')
+        for ej in early_jobs:
+            ej_rows = early_df[early_df['job_early'] == ej].to_dict('records')
+            draw_card(ej, PNG_EARLY_COLORS.get(ej, '#3b82f6'), ej_rows, hide_badges=True)
+
+    # ── フッター ──
+    now_str = datetime.now().strftime('%Y/%m/%d %H:%M')
+    draw.text((PAD, total_h - FOOTER_H // 2),
+              f'稼働表システム　生成：{now_str}',
+              font=f_footer, fill=h2r('#475569'), anchor='lm')
+
     buf = io.BytesIO()
     img.save(buf, 'PNG', optimize=True)
     return buf.getvalue()
