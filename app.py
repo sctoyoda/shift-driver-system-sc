@@ -904,9 +904,9 @@ def generate_day_image(target_date_str: str) -> bytes:
     f_year   = load_font(14)
     f_date   = load_font(48)
     f_sec    = load_font(12)
-    f_job    = load_font(18)
+    f_job    = load_font(22)
     f_count  = load_font(13)
-    f_driver = load_font(16)
+    f_driver = load_font(18)
     f_badge  = load_font(11)
     f_badge_bold = load_font(13)
     f_footer = load_font(12)
@@ -1051,7 +1051,7 @@ def generate_day_image(target_date_str: str) -> bytes:
             row_mid = ry + ROW_H // 2
 
             # 左の小丸ドット
-            DOT_R = 4
+            DOT_R = 5
             dot_x = cx0 + BAR_W + 20
             draw.ellipse([dot_x - DOT_R, row_mid - DOT_R,
                           dot_x + DOT_R, row_mid + DOT_R], fill=jcol)
