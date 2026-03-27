@@ -1064,7 +1064,7 @@ def generate_day_image(target_date_str: str) -> bytes:
                 badges = []
                 cfg = _effective_yono_type(row, driver_configs)
                 if cfg == 'spot':
-                    badges.append(('スポット', '#1e3a5f', '#60a5fa'))
+                    badges.append(('スポット', '#2d3748', '#a0aec0'))
                 elif cfg == 'early_shift':
                     badges.append(('早番', '#14532d', '#4ade80'))
                 if row.get('yokonori_flag', 0):
