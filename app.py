@@ -1062,7 +1062,7 @@ def generate_day_image(target_date_str: str) -> bytes:
             # バッジ
             if not hide_badges:
                 badges = []
-                cfg = driver_configs.get(driver, 'normal')
+                cfg = _effective_yono_type(row, driver_configs)
                 if cfg == 'spot':
                     badges.append(('スポット', '#1e3a5f', '#60a5fa'))
                 elif cfg == 'early_shift':
