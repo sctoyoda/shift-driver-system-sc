@@ -908,6 +908,7 @@ def generate_day_image(target_date_str: str) -> bytes:
     f_count  = load_font(13)
     f_driver = load_font(16)
     f_badge  = load_font(11)
+    f_badge_bold = load_font(13)
     f_footer = load_font(12)
 
     # 案件カラー（PNG専用）
@@ -940,8 +941,8 @@ def generate_day_image(target_date_str: str) -> bytes:
     # レイアウト定数
     W         = 750
     PAD       = 28
-    BG        = h2r('#0f1929')
-    CARD_BG   = h2r('#1a2540')
+    BG        = h2r('#1a2b4a')
+    CARD_BG   = h2r('#243354')
     CARD_R    = 12
     BAR_W     = 6
     CARD_GAP  = 16
@@ -1061,26 +1062,39 @@ def generate_day_image(target_date_str: str) -> bytes:
 
             # バッジ
             if not hide_badges:
+                # (text, bg, fg, bold)
                 badges = []
                 cfg = _effective_yono_type(row, driver_configs)
                 if cfg == 'spot':
-                    badges.append(('スポット', '#0e7490', '#67e8f9'))
+                    badges.append(('スポット', '#0891b2', '#ffffff', True))
                 elif cfg == 'early_shift':
-                    badges.append(('早番', '#14532d', '#4ade80'))
+                    badges.append(('早番', '#7c3aed', '#ffffff', True))
                 if row.get('yokonori_flag', 0):
-                    badges.append(('横乗り', '#831843', '#f9a8d4'))
+                    badges.append(('横乗り', '#831843', '#f9a8d4', False))
                 if row.get('special_flag', 0):
-                    badges.append(('特殊', '#450a0a', '#f87171'))
+                    badges.append(('特殊', '#450a0a', '#f87171', False))
 
+                BOLD_PD = 12   # スポット/早番の横パディング
+                BOLD_H  = 28   # スポット/早番のバッジ高さ
+                BOLD_R  = 20   # 角丸半径
                 bx = cx1 - 12
-                for btxt, bbg, bfg in reversed(badges):
-                    bw = int(draw.textlength(btxt, font=f_badge)) + BADGE_PD * 2
-                    bx -= bw
-                    by = row_mid - BADGE_H // 2
-                    draw.rounded_rectangle([bx, by, bx + bw, by + BADGE_H],
-                                          radius=BADGE_H // 2, fill=h2r(bbg))
-                    draw.text((bx + BADGE_PD, row_mid), btxt,
-                              font=f_badge, fill=h2r(bfg), anchor='lm')
+                for btxt, bbg, bfg, is_bold in reversed(badges):
+                    if is_bold:
+                        bw  = int(draw.textlength(btxt, font=f_badge_bold)) + BOLD_PD * 2
+                        bhy = row_mid - BOLD_H // 2
+                        bx -= bw
+                        draw.rounded_rectangle([bx, bhy, bx + bw, bhy + BOLD_H],
+                                              radius=BOLD_R, fill=h2r(bbg))
+                        draw.text((bx + BOLD_PD, row_mid), btxt,
+                                  font=f_badge_bold, fill=h2r(bfg), anchor='lm')
+                    else:
+                        bw = int(draw.textlength(btxt, font=f_badge)) + BADGE_PD * 2
+                        bx -= bw
+                        by = row_mid - BADGE_H // 2
+                        draw.rounded_rectangle([bx, by, bx + bw, by + BADGE_H],
+                                              radius=BADGE_H // 2, fill=h2r(bbg))
+                        draw.text((bx + BADGE_PD, row_mid), btxt,
+                                  font=f_badge, fill=h2r(bfg), anchor='lm')
                     bx -= BADGE_GAP
 
             # 行間区切り線（最後の行は除く）
