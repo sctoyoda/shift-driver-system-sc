@@ -957,10 +957,11 @@ def generate_day_image(target_date_str: str) -> bytes:
     display_df = df[df['job_main'].notna() & (df['job_main'] != '')].copy()
     early_df   = df[df['job_early'].notna() & (df['job_early'] != '')].copy()
 
-    JOB_ORDER = ['与野', '川口', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ']
+    JOB_ORDER  = ['与野', '川口', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ']
+    JOB_HIDDEN = {'ダイオ'}   # 表示しない案件
     daytime_jobs = [j for j in JOB_ORDER if not display_df[display_df['job_main'] == j].empty]
     for j in display_df['job_main'].unique():
-        if j not in daytime_jobs:
+        if j not in daytime_jobs and j not in JOB_HIDDEN:
             daytime_jobs.append(j)
     early_jobs = list(early_df['job_early'].dropna().unique()) if not early_df.empty else []
 
