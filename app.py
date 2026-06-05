@@ -84,7 +84,7 @@ JOB_COLORS = {
     '高島平':   {'bg': '#f0f7ff', 'border': '#1e88e5', 'header_bg': '#0d47a1', 'header_txt': '#ffffff'},
     '東天紅':   {'bg': '#fdf4ff', 'border': '#8e24aa', 'header_bg': '#6a1b9a', 'header_txt': '#ffffff'},
     'ハナマサ':   {'bg': '#fffde7', 'border': '#fdd835', 'header_bg': '#f9a825', 'header_txt': '#1a1a1a'},
-    'イオン板橋': {'bg': '#fffbeb', 'border': '#92400e', 'header_bg': '#78350f', 'header_txt': '#ffffff'},
+    'イオン板橋': {'bg': '#fef8f3', 'border': '#c2713f', 'header_bg': '#a05a2c', 'header_txt': '#ffffff'},
 }
 
 EARLY_JOB_COLORS = {
@@ -922,7 +922,7 @@ def generate_day_image(target_date_str: str) -> bytes:
         '高島平':  '#38bdf8',
         'ハナマサ': '#ca8a04',
         '東天紅':  '#ef4444',
-        'イオン板橋': '#92400e',
+        'イオン板橋': '#c2713f',
     }
     PNG_EARLY_COLORS = {
         'リネン':      '#3b82f6',
@@ -1196,7 +1196,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         '巣鴨':    (230,  81,   0),'イイダ':  ( 55,  71,  79),
         '高島平':  ( 13,  71, 161),'東天紅':  (106,  27, 154),
         'ハナマサ':   (240, 185,   0),
-        'イオン板橋': (146,  64,  14),
+        'イオン板橋': (194, 113,  63),
     }
     EARLY_COLORS = {
         'リネン': (13, 71, 161), 'リネン対面': (10, 48, 96),
