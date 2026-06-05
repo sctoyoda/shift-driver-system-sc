@@ -14,6 +14,7 @@ pdf_parser.py - シフトPDF解析エンジン
 import io
 import re
 import colorsys
+import calendar
 
 import pdfplumber
 
@@ -138,7 +139,18 @@ def parse_cell_text(raw: str) -> dict:
                 break
 
     is_yokonori = '横' in text
-    return {'job_early': job_early, 'job_main': job_main, 'is_yokonori': is_yokonori}
+
+    # 与野スポットのテキストヒント（「与野S」「与野スポット」など）
+    yono_hint = None
+    if job_main == '与野':
+        for pattern, _ in MAIN_JOB_PATTERNS:
+            if remaining.startswith(pattern):
+                suffix = remaining[len(pattern):]
+                if suffix in ('S', 's', 'スポット'):
+                    yono_hint = 'spot'
+                break
+
+    return {'job_early': job_early, 'job_main': job_main, 'is_yokonori': is_yokonori, 'yono_hint': yono_hint}
 
 
 # ────────────────────────────────────────────────
@@ -191,9 +203,9 @@ def _classify_pdf_color(color) -> str:
     if 60 <= h_deg <= 150:
         return 'yono_normal'
 
-    # 青 (H=195〜255, 高彩度) → 与野スポット
-    # ※ 低彩度(S<50)は土日の列背景色のため除外
-    if 195 <= h_deg <= 255 and s_pct > 50:
+    # 青 (H=185〜260, 高彩度) → 与野スポット
+    # ※ 低彩度(S<35)は土日の列背景色のため除外（閾値を緩和して境界値の取りこぼしを防止）
+    if 185 <= h_deg <= 260 and s_pct > 35:
         return 'yono_spot'
 
     # 紫 (H=255〜310) → 与野早番
@@ -341,7 +353,12 @@ def _parse_table_page(page, year_month: str) -> list:
     # → 代わりに着色矩形のX座標から日付を計算し、Y座標からドライバー行を特定する
     # ────────────────────────────────────────────────
     RECT_X0_START  = 68.4
-    RECT_COL_WIDTH = 23.35
+    try:
+        year_n, month_n = map(int, year_month.split('-'))
+        days_in_month   = calendar.monthrange(year_n, month_n)[1]
+        RECT_COL_WIDTH  = (page.width - RECT_X0_START - 20) / days_in_month
+    except Exception:
+        RECT_COL_WIDTH  = 23.35
     PRIORITY = {'special': 4, 'yono_early_shift': 3, 'yono_spot': 2, 'yono_normal': 1, 'normal': 0}
 
     driver_day_color = {}  # (driver, day) -> color_type
@@ -353,7 +370,7 @@ def _parse_table_page(page, year_month: str) -> list:
         for r in colored_rects:
             if r['color_type'] not in ('yono_early_shift', 'yono_spot', 'special'):
                 continue
-            band_key = round(r['top'])
+            band_key = int(r['top'] / 3) * 3
             if band_key not in band_map:
                 band_map[band_key] = {'top': r['top'], 'bottom': r['bottom'], 'rects': []}
             band_map[band_key]['rects'].append(r)
@@ -447,6 +464,9 @@ def _parse_table_page(page, year_month: str) -> list:
                 yono_type = 'spot'
             elif ct == 'yono_early_shift' and job_info.get('job_main') == '与野':
                 yono_type = 'early_shift'
+            # 色検出が失敗した場合のテキストフォールバック（与野S / 与野スポット）
+            elif ct == 'normal' and job_info.get('yono_hint') == 'spot':
+                yono_type = 'spot'
 
             try:
                 full_date = f"{year_month}-{day:02d}"
