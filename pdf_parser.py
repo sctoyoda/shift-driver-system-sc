@@ -69,6 +69,8 @@ MAIN_JOB_PATTERNS = [
     ('与野',    '与野'),
     # 北戸田は「与野エリアの時間バリアント」として与野に正規化
     ('北戸田',  '与野'),
+    ('ピ川口',  '川口P'),
+    ('川口P',   '川口P'),
     ('川口横',  '川口'),
     ('川口',    '川口'),
     ('巣鴨横',  '巣鴨'),
@@ -199,6 +201,10 @@ def _classify_pdf_color(color) -> str:
     if s_pct < 15:
         return 'normal'
 
+    # 肌色/ベージュ (H=15〜55, 彩度あり) → 与野10〜18（長番）
+    if 15 <= h_deg <= 55 and s_pct > 12:
+        return 'yono_long'
+
     # 緑 / 黄緑 (H=60〜150) → 与野通常
     if 60 <= h_deg <= 150:
         return 'yono_normal'
@@ -252,7 +258,7 @@ def _color_type_at(x0, top, x1, bottom, colored_rects: list) -> str:
     優先度: special > yono_early_shift > yono_spot > yono_normal
     """
     # 優先度テーブル
-    PRIORITY = {'special': 4, 'yono_early_shift': 3, 'yono_spot': 2, 'yono_normal': 1, 'normal': 0}
+    PRIORITY = {'special': 4, 'yono_early_shift': 3, 'yono_spot': 2, 'yono_long': 2, 'yono_normal': 1, 'normal': 0}
 
     cell_w = max(x1 - x0, 1)
     cell_h = max(bottom - top, 1)
@@ -359,7 +365,7 @@ def _parse_table_page(page, year_month: str) -> list:
         RECT_COL_WIDTH  = (page.width - RECT_X0_START - 20) / days_in_month
     except Exception:
         RECT_COL_WIDTH  = 23.35
-    PRIORITY = {'special': 4, 'yono_early_shift': 3, 'yono_spot': 2, 'yono_normal': 1, 'normal': 0}
+    PRIORITY = {'special': 4, 'yono_early_shift': 3, 'yono_spot': 2, 'yono_long': 2, 'yono_normal': 1, 'normal': 0}
 
     driver_day_color = {}  # (driver, day) -> color_type
 
@@ -368,7 +374,7 @@ def _parse_table_page(page, year_month: str) -> list:
         # colN の実際の日付は N+1（col0=day1, col1=day2, ...）
         band_map = {}  # rounded_top -> {'top':, 'bottom':, 'rects':[]}
         for r in colored_rects:
-            if r['color_type'] not in ('yono_early_shift', 'yono_spot', 'special'):
+            if r['color_type'] not in ('yono_early_shift', 'yono_spot', 'special', 'yono_long'):
                 continue
             band_key = int(r['top'] / 3) * 3
             if band_key not in band_map:
@@ -464,6 +470,8 @@ def _parse_table_page(page, year_month: str) -> list:
                 yono_type = 'spot'
             elif ct == 'yono_early_shift' and job_info.get('job_main') == '与野':
                 yono_type = 'early_shift'
+            elif ct == 'yono_long' and job_info.get('job_main') == '与野':
+                yono_type = 'long'
             # 色検出が失敗した場合のテキストフォールバック（与野S / 与野スポット）
             elif ct == 'normal' and job_info.get('yono_hint') == 'spot':
                 yono_type = 'spot'

@@ -28,7 +28,7 @@ import pdf_parser as parser
 # 定数
 # ────────────────────────────────────────────────
 
-MAIN_JOBS_ORDER = ['与野', '川口', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ', 'イオン板橋']
+MAIN_JOBS_ORDER = ['与野', '川口', '川口P', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ', 'イオン板橋']
 EXCLUDED_JOBS   = {'ダイオ', '草加'}
 
 LOGO_DIR = os.path.join(os.path.dirname(__file__), 'logos')
@@ -79,6 +79,7 @@ def _prepare_logo_buf(logo_path: str):
 JOB_COLORS = {
     '与野':     {'bg': '#f0fdf4', 'border': '#43a047', 'header_bg': '#2e7d32', 'header_txt': '#ffffff'},
     '川口':     {'bg': '#fffdf0', 'border': '#f9a825', 'header_bg': '#f57f17', 'header_txt': '#ffffff'},
+    '川口P':    {'bg': '#fdf2f8', 'border': '#ec4899', 'header_bg': '#be185d', 'header_txt': '#ffffff'},
     '巣鴨':     {'bg': '#fff8f0', 'border': '#ef6c00', 'header_bg': '#e65100', 'header_txt': '#ffffff'},
     'イイダ':   {'bg': '#fafafa', 'border': '#757575', 'header_bg': '#37474f', 'header_txt': '#ffffff'},
     '高島平':   {'bg': '#f0f7ff', 'border': '#1e88e5', 'header_bg': '#0d47a1', 'header_txt': '#ffffff'},
@@ -101,6 +102,7 @@ YONO_TYPE_LABELS = {
     'normal':      '通常',
     'spot':        'スポット',
     'early_shift': '早番',
+    'long':        '10〜18',
 }
 YONO_TYPE_OPTIONS = list(YONO_TYPE_LABELS.keys())
 
@@ -339,6 +341,7 @@ def setup_page():
     .badge-early       { background: #1e40af; color: #fff; }
     .badge-spot        { background: #075985; color: #fff; }
     .badge-early-shift { background: #5b21b6; color: #fff; }
+    .badge-long        { background: #d97706; color: #fff; }
     .badge-yokonori    { background: #b45309; color: #fff; }
 
     /* ── WARNING ── */
@@ -555,6 +558,8 @@ def _driver_row_html(driver: str, job_early: Optional[str],
         badges += '<span class="badge badge-spot">スポット</span>'
     elif yono_type == 'early_shift':
         badges += '<span class="badge badge-early-shift">早番</span>'
+    elif yono_type == 'long':
+        badges += '<span class="badge badge-long">10〜18</span>'
     if yokonori:
         badges += '<span class="badge badge-yokonori">横乗り</span>'
     if special:
@@ -842,6 +847,7 @@ body {
 .badge-early       { background: #1e40af; color: #fff; }
 .badge-spot        { background: #075985; color: #fff; }
 .badge-early-shift { background: #5b21b6; color: #fff; }
+.badge-long        { background: #d97706; color: #fff; }
 .badge-yokonori    { background: #b45309; color: #fff; }
 .total-bar {
     display: flex;
@@ -917,6 +923,7 @@ def generate_day_image(target_date_str: str) -> bytes:
     PNG_COLORS = {
         '与野':    '#22c55e',
         '川口':    '#f97316',
+        '川口P':   '#ec4899',
         '巣鴨':    '#eab308',
         'イイダ':  '#94a3b8',
         '高島平':  '#38bdf8',
@@ -934,6 +941,7 @@ def generate_day_image(target_date_str: str) -> bytes:
     PNG_DISPLAY = {
         '与野':    'イオン与野',
         '川口':    'オニゴー川口',
+        '川口P':   '川口P',
         '巣鴨':    '西友巣鴨',
         'イイダ':  'イイダ',
         '高島平':  '高島平',
@@ -961,7 +969,7 @@ def generate_day_image(target_date_str: str) -> bytes:
     display_df = df[df['job_main'].notna() & (df['job_main'] != '')].copy()
     early_df   = df[df['job_early'].notna() & (df['job_early'] != '')].copy()
 
-    JOB_ORDER  = ['与野', '川口', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ', 'イオン板橋']
+    JOB_ORDER  = ['与野', '川口', '川口P', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ', 'イオン板橋']
     JOB_HIDDEN = {'ダイオ'}   # 表示しない案件
     daytime_jobs = [j for j in JOB_ORDER if not display_df[display_df['job_main'] == j].empty]
     for j in display_df['job_main'].unique():
@@ -1071,9 +1079,11 @@ def generate_day_image(target_date_str: str) -> bytes:
                 badges = []
                 cfg = _effective_yono_type(row, driver_configs)
                 if cfg == 'spot':
-                    badges.append(('スポット', '#0891b2', '#ffffff', True))
+                    badges.append(('10〜16', '#0891b2', '#ffffff', True))
                 elif cfg == 'early_shift':
                     badges.append(('早番', '#7c3aed', '#ffffff', True))
+                elif cfg == 'long':
+                    badges.append(('10〜18', '#d97706', '#ffffff', True))
                 if row.get('yokonori_flag', 0):
                     badges.append(('横乗り', '#831843', '#f9a8d4', False))
                 if row.get('special_flag', 0):
@@ -1192,7 +1202,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     C_LABEL  = (140, 140, 140)
 
     COLOR_MAP = {
-        '与野':    (67, 160,  71), '川口':    (245, 127,  23),
+        '与野':    (67, 160,  71), '川口':    (245, 127,  23), '川口P':   (236,  72, 153),
         '巣鴨':    (230,  81,   0),'イイダ':  ( 55,  71,  79),
         '高島平':  ( 13,  71, 161),'東天紅':  (106,  27, 154),
         'ハナマサ':   (240, 185,   0),
@@ -1203,8 +1213,9 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         '洗濯':   (51, 105, 30), 'カゴ回収':   (40, 53, 147),
     }
     YONO_BADGE = {
-        'early_shift': ((91, 33, 182), '早番'),
-        'spot':        (( 7, 89, 133), 'スポット'),
+        'early_shift': ((91,  33, 182), '早番'),
+        'spot':        (( 7,  89, 133), 'スポット'),
+        'long':        ((180, 80,   0), '10〜18'),
     }
 
     display_df_pre = df[~df['job_main'].fillna('').isin(EXCLUDED_JOBS)]
