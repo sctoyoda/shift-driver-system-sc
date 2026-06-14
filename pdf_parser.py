@@ -409,16 +409,10 @@ def _parse_table_page(page, year_month: str) -> list:
                 txt = ''
             txt_clean = re.sub(r'[\s\n\r　]+', '', txt)
 
-            # ドライバー名をマッチング（完全一致 → 前方一致 → 後方一致）
+            # ドライバー名をマッチング（完全一致のみ）
             matched_driver = None
             for driver in driver_list:
-                if driver == txt_clean:           # 完全一致
-                    matched_driver = driver
-                    break
-                if txt_clean.startswith(driver):  # 前方一致
-                    matched_driver = driver
-                    break
-                if txt_clean.endswith(driver):    # 後方一致
+                if driver == txt_clean:
                     matched_driver = driver
                     break
             if matched_driver is None:
