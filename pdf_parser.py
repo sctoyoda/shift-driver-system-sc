@@ -471,15 +471,8 @@ def _parse_table_page(page, year_month: str) -> list:
             ct = driver_day_color.get((driver, day), 'normal')
             if ct == 'special':
                 special_flag = 1
-            elif ct == 'yono_spot' and job_info.get('job_main') == '与野':
-                yono_type = 'spot'
-            elif ct == 'yono_early_shift' and job_info.get('job_main') == '与野':
-                yono_type = 'early_shift'
-            elif ct == 'yono_long' and job_info.get('job_main') == '与野':
-                yono_type = 'long'
-            # 色検出が失敗した場合のテキストフォールバック（与野S / 与野スポット）
-            elif ct == 'normal' and job_info.get('yono_hint') == 'spot':
-                yono_type = 'spot'
+            # 与野タイプの色自動判定は無効化（稼働確認画面の手動設定UIで管理）
+            # yono_type は常に 'normal' のまま保存する
 
             try:
                 full_date = f"{year_month}-{day:02d}"

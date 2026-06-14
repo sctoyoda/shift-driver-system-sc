@@ -49,6 +49,17 @@ def init_db():
         )
     ''')
 
+    # 日付別の与野タイプ手動設定（稼働確認画面UIから保存）
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS yono_overrides (
+            date        TEXT NOT NULL,
+            driver      TEXT NOT NULL,
+            yono_type   TEXT NOT NULL DEFAULT 'normal',
+            updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (date, driver)
+        )
+    ''')
+
     # shifts に yono_type 列を追加（既存テーブルへの移行対応）
     try:
         c.execute("ALTER TABLE shifts ADD COLUMN yono_type TEXT DEFAULT 'normal'")
@@ -203,6 +214,32 @@ def save_driver_configs_bulk(configs: dict):
                 yono_type  = excluded.yono_type,
                 updated_at = CURRENT_TIMESTAMP
         ''', (driver, yono_type))
+    conn.commit()
+    conn.close()
+
+
+def get_yono_overrides_by_date(target_date: str) -> dict:
+    """指定日の与野タイプ手動設定を返す。{driver: yono_type}"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT driver, yono_type FROM yono_overrides WHERE date = ?", (target_date,))
+    result = {row[0]: row[1] for row in c.fetchall()}
+    conn.close()
+    return result
+
+
+def save_yono_overrides_bulk(target_date: str, overrides: dict):
+    """日付別与野タイプを一括保存する。{driver: yono_type}"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    for driver, yono_type in overrides.items():
+        c.execute('''
+            INSERT INTO yono_overrides (date, driver, yono_type, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(date, driver) DO UPDATE SET
+                yono_type  = excluded.yono_type,
+                updated_at = CURRENT_TIMESTAMP
+        ''', (target_date, driver, yono_type))
     conn.commit()
     conn.close()
 

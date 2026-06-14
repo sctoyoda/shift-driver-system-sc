@@ -454,14 +454,20 @@ def setup_page():
 def _effective_yono_type(row, driver_configs: dict) -> str:
     """
     与野タイプを決定する優先順位:
-      1. PDF セル色から検出した yono_type（spot / early_shift）
+      1. 日付別手動設定（yono_overrides）が driver_configs にマージ済み
       2. driver_config の固定設定
       3. デフォルト 'normal'
+    PDF色自動判定は無効化済み（pdf_parser では常に 'normal' で保存）
     """
-    from_pdf = row.get('yono_type', 'normal')
-    if from_pdf and from_pdf != 'normal':
-        return from_pdf
-    return driver_configs.get(row['driver'], 'normal')
+    return driver_configs.get(row.get('driver', ''), 'normal')
+
+
+def _merged_yono_configs(target_date_str: str, driver_configs: dict) -> dict:
+    """日付別手動設定(yono_overrides)をdriver_configsにマージして返す。日付設定が優先。"""
+    overrides = db.get_yono_overrides_by_date(target_date_str)
+    merged = dict(driver_configs)
+    merged.update(overrides)
+    return merged
 
 
 def _is_weekend(d: date) -> bool:
@@ -595,7 +601,7 @@ def render_shift_view(target_date_str: str):
         return
 
     display_df = df[~df['job_main'].fillna('').isin(EXCLUDED_JOBS)].copy()
-    driver_configs = db.get_all_driver_configs()
+    driver_configs = _merged_yono_configs(target_date_str, db.get_all_driver_configs())
 
     yono_df = display_df[display_df['job_main'] == '与野'].copy()
     yono_df['effective_yono_type'] = yono_df.apply(
@@ -707,7 +713,7 @@ def _build_shift_html(target_date_str: str) -> str:
     if df.empty:
         return ''
 
-    driver_configs = db.get_all_driver_configs()
+    driver_configs = _merged_yono_configs(target_date_str, db.get_all_driver_configs())
     display_df = df[~df['job_main'].fillna('').isin(EXCLUDED_JOBS)].copy()
 
     date_html = _date_chip_html(target_date)
@@ -889,7 +895,7 @@ def generate_day_image(target_date_str: str) -> bytes:
     except ValueError:
         return b''
 
-    driver_configs = db.get_all_driver_configs()
+    driver_configs = _merged_yono_configs(target_date_str, db.get_all_driver_configs())
     wd = WEEKDAY_JA[target_date.weekday()]
     is_weekend = target_date.weekday() >= 5
 
@@ -1174,7 +1180,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
     except ValueError:
         return b''
 
-    driver_configs = db.get_all_driver_configs()
+    driver_configs = _merged_yono_configs(target_date_str, db.get_all_driver_configs())
     wd = WEEKDAY_JA[target_date.weekday()]
 
     # ── 寸法定数 ──
@@ -1219,8 +1225,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         display_df_pre['job_early'].notna() & (display_df_pre['job_early'] != '')]
 
     def _get_yt(row):
-        v = row.get('yono_type', 'normal')
-        return v if v and v != 'normal' else driver_configs.get(row.get('driver', ''), 'normal')
+        return driver_configs.get(row.get('driver', ''), 'normal')
 
     # コンテンツ高さを事前計算
     content_h = SEC_H
@@ -1446,6 +1451,48 @@ def tab_view():
 
     render_shift_view(view_date_str)
 
+    # ── 与野タイプ 日付別手動設定 ──
+    yono_shift_df = db.get_shifts_by_date(view_date_str)
+    yono_drivers = sorted(
+        yono_shift_df[yono_shift_df['job_main'] == '与野']['driver'].unique().tolist()
+    ) if not yono_shift_df.empty else []
+
+    if yono_drivers:
+        st.markdown('<hr class="thin-divider">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">与野タイプ設定（日付別）</div>', unsafe_allow_html=True)
+        current_overrides = db.get_yono_overrides_by_date(view_date_str)
+
+        with st.form(f'yono_override_form_{view_date_str}'):
+            new_overrides = {}
+            for driver in yono_drivers:
+                current = current_overrides.get(driver, 'normal')
+                if current not in YONO_TYPE_OPTIONS:
+                    current = 'normal'
+                col_name, col_sel = st.columns([2, 2])
+                with col_name:
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;padding:0.45rem 0;">'
+                        f'<span style="font-weight:600;font-size:0.95rem;color:#1e293b;">'
+                        f'{driver}</span></div>',
+                        unsafe_allow_html=True,
+                    )
+                with col_sel:
+                    sel = st.selectbox(
+                        label=driver,
+                        options=YONO_TYPE_OPTIONS,
+                        index=YONO_TYPE_OPTIONS.index(current),
+                        format_func=lambda x: YONO_TYPE_LABELS[x],
+                        key=f'yono_ov_{view_date_str}_{driver}',
+                        label_visibility='collapsed',
+                    )
+                new_overrides[driver] = sel
+            submitted_ov = st.form_submit_button('💾 与野タイプを保存', use_container_width=True)
+
+        if submitted_ov:
+            db.save_yono_overrides_bulk(view_date_str, new_overrides)
+            st.success('✅ 与野タイプを保存しました。')
+            st.rerun()
+
     st.markdown('<hr class="thin-divider">', unsafe_allow_html=True)
     st.markdown('<div class="section-label">ダウンロード</div>', unsafe_allow_html=True)
     img_data = generate_day_image(view_date_str)
@@ -1460,7 +1507,7 @@ def tab_view():
 # ────────────────────────────────────────────────
 
 def tab_settings():
-    st.caption('ドライバーごとに「与野」案件のタイプを設定します。PDFの色検出が優先されます。')
+    st.caption('ドライバーごとに「与野」案件のデフォルトタイプを設定します。稼働確認画面の日付別設定が優先されます。')
 
     drivers = db.get_all_known_drivers()
     if not drivers:
