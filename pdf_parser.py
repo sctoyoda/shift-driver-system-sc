@@ -439,6 +439,11 @@ def _parse_table_page(page, year_month: str) -> list:
     except Exception:
         pass
 
+    # デバッグ: driver_day_color の全件出力
+    print(f"[DEBUG] driver_day_color ({len(driver_day_color)} 件):")
+    for (drv, day), ct in sorted(driver_day_color.items(), key=lambda x: (x[0][0], x[0][1])):
+        print(f"  driver={drv}  day={day:02d}  color={ct}")
+
     # データ行の解析
     shifts = []
     for i, row in enumerate(table):
