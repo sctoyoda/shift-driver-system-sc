@@ -13,7 +13,6 @@ pdf_parser.py - シフトPDF解析エンジン
 """
 import io
 import re
-import colorsys
 import calendar
 
 import pdfplumber
@@ -167,13 +166,23 @@ def _classify_pdf_color(color) -> str:
       - None / 0 / 1  (グレースケール)
       - (R, G, B)     0〜1 スケール
       - (C, M, Y, K)  0〜1 スケール
+
+    RGB判定条件（0-255 スケール換算）:
+      青（与野スポット）    : R<50,  G>150, B>200
+      ピンク/紫（与野早番）: R>120, B>150, G<130
+        ※ 川口前川（スポット）のピンクも同条件に一致するが、
+           _parse_table_page で job_main=='与野' のときのみ適用するため競合なし
+      緑・濃（与野通常）   : G>200, R<120
+      緑・薄（与野通常）   : G>180, G>R+30, G>B+20
+      肌色/ベージュ（10〜18）: R>180, G>130, B<170, R>G+10, G>B
+      特殊案件             : R>200, G<80,  B>80
     """
     if color is None:
         return 'normal'
 
     # グレースケール
     if isinstance(color, (int, float)):
-        return 'normal'  # 白か黒
+        return 'normal'
 
     if not hasattr(color, '__len__') or len(color) == 0:
         return 'normal'
@@ -189,38 +198,35 @@ def _classify_pdf_color(color) -> str:
     else:
         return 'normal'
 
+    # 0-255 スケールに変換
+    R, G, B = r * 255, g * 255, b * 255
+
     # ほぼ白
-    if r > 0.92 and g > 0.92 and b > 0.92:
+    if R > 235 and G > 235 and B > 235:
         return 'normal'
 
-    # HSV に変換
-    h, s, v = colorsys.rgb_to_hsv(r, g, b)
-    h_deg = h * 360   # 0-360
-    s_pct = s * 100   # 0-100
-
-    if s_pct < 15:
-        return 'normal'
-
-    # 肌色/ベージュ (H=15〜55, 彩度あり) → 与野10〜18（長番）
-    if 15 <= h_deg <= 55 and s_pct > 12:
-        return 'yono_long'
-
-    # 緑 / 黄緑 (H=60〜150) → 与野通常
-    if 60 <= h_deg <= 150:
-        return 'yono_normal'
-
-    # 青 (H=185〜260, 高彩度) → 与野スポット
-    # ※ 低彩度(S<35)は土日の列背景色のため除外（閾値を緩和して境界値の取りこぼしを防止）
-    if 185 <= h_deg <= 260 and s_pct > 35:
+    # 青（与野スポット）: R<50, G>150, B>200
+    if R < 50 and G > 150 and B > 200:
         return 'yono_spot'
 
-    # 紫 (H=255〜310) → 与野早番
-    if 255 < h_deg <= 310:
+    # ピンク/紫（与野早番）: R>120, B>150, G<130
+    if R > 120 and B > 150 and G < 130:
         return 'yono_early_shift'
 
-    # 濃ピンク (H=310〜359, 高彩度) → 特殊案件
-    # ※ 純赤 (H=0) はドライバー行の視覚的な色分けのため除外
-    if 310 <= h_deg <= 359 and s_pct > 50:
+    # 緑・濃（与野通常）: G>200, R<120
+    if G > 200 and R < 120:
+        return 'yono_normal'
+
+    # 緑・薄（与野通常）: G>180, G>R+30, G>B+20
+    if G > 180 and G > R + 30 and G > B + 20:
+        return 'yono_normal'
+
+    # 肌色/ベージュ（与野10〜18）: R>G>B の暖色系
+    if R > 180 and G > 130 and B < 170 and R > G + 10 and G > B:
+        return 'yono_long'
+
+    # 特殊案件（濃ピンク/赤系）: R>200, G<80, B>80
+    if R > 200 and G < 80 and B > 80:
         return 'special'
 
     return 'normal'
