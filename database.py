@@ -70,6 +70,11 @@ def init_db():
         c.execute("ALTER TABLE shifts ADD COLUMN yokonori_flag INTEGER DEFAULT 0")
     except Exception:
         pass
+    # driver_config に hidden 列を追加（既存テーブルへの移行対応）
+    try:
+        c.execute("ALTER TABLE driver_config ADD COLUMN hidden INTEGER DEFAULT 0")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -245,10 +250,66 @@ def save_yono_overrides_bulk(target_date: str, overrides: dict):
 
 
 def get_all_known_drivers() -> list:
-    """シフトデータに存在する全ドライバー名を返す"""
+    """シフトデータに存在する全ドライバー名を返す（非表示除く）"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT DISTINCT driver FROM shifts ORDER BY driver")
+    # driver_config で hidden=1 のドライバーを除外
+    c.execute("""
+        SELECT DISTINCT s.driver FROM shifts s
+        LEFT JOIN driver_config dc ON s.driver = dc.driver
+        WHERE COALESCE(dc.hidden, 0) = 0
+        ORDER BY s.driver
+    """)
     drivers = [row[0] for row in c.fetchall()]
     conn.close()
     return drivers
+
+
+def register_drivers_if_new(drivers: list):
+    """ドライバーリストをdriver_configに登録する（未登録のみ）"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    for driver in drivers:
+        c.execute('''
+            INSERT OR IGNORE INTO driver_config (driver, yono_type, hidden)
+            VALUES (?, 'normal', 0)
+        ''', (driver,))
+    conn.commit()
+    conn.close()
+
+
+def save_driver_hidden(driver: str, hidden: bool):
+    """ドライバーの非表示フラグを保存する"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO driver_config (driver, yono_type, hidden, updated_at)
+        VALUES (?, 'normal', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(driver) DO UPDATE SET
+            hidden     = excluded.hidden,
+            updated_at = CURRENT_TIMESTAMP
+    ''', (driver, int(hidden)))
+    conn.commit()
+    conn.close()
+
+
+def get_driver_hidden_status() -> dict:
+    """全ドライバーの非表示フラグを返す。{driver: bool}"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT driver, hidden FROM driver_config")
+    result = {row[0]: bool(row[1]) for row in c.fetchall()}
+    conn.close()
+    return result
+
+
+def get_all_drivers_extended() -> list:
+    """設定タブ用：シフトDB + driver_config の全ドライバーをソートして返す"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT driver FROM shifts")
+    shift_drivers = {row[0] for row in c.fetchall()}
+    c.execute("SELECT driver FROM driver_config")
+    config_drivers = {row[0] for row in c.fetchall()}
+    conn.close()
+    return sorted(shift_drivers | config_drivers)

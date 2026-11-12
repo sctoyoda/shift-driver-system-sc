@@ -1556,50 +1556,96 @@ def tab_view():
 def tab_settings():
     st.caption('ドライバーごとに「与野」案件のデフォルトタイプを設定します。稼働確認画面の日付別設定が優先されます。')
 
-    drivers = db.get_all_known_drivers()
-    if not drivers:
+    all_drivers    = db.get_all_drivers_extended()
+    hidden_status  = db.get_driver_hidden_status()
+    current_configs = db.get_all_driver_configs()
+
+    active_drivers = [d for d in all_drivers if not hidden_status.get(d, False)]
+    hidden_drivers = [d for d in all_drivers if hidden_status.get(d, False)]
+
+    # ── 与野タイプ設定フォーム ──
+    if active_drivers:
+        with st.form('driver_config_form'):
+            st.markdown('<div class="section-label">与野タイプ 固定設定</div>', unsafe_allow_html=True)
+            new_configs  = {}
+            hide_checked = {}
+            for driver in active_drivers:
+                current_type = current_configs.get(driver, 'normal')
+                if current_type not in YONO_TYPE_OPTIONS:
+                    current_type = 'normal'
+                col_name, col_sel, col_hide = st.columns([2, 2, 1])
+                with col_name:
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;padding:0.45rem 0;">'
+                        f'<span style="font-weight:600;font-size:0.95rem;color:#1e293b;">{driver}</span></div>',
+                        unsafe_allow_html=True,
+                    )
+                with col_sel:
+                    selected_type = st.selectbox(
+                        label=driver,
+                        options=YONO_TYPE_OPTIONS,
+                        index=YONO_TYPE_OPTIONS.index(current_type),
+                        format_func=lambda x: YONO_TYPE_LABELS[x],
+                        key=f'cfg_{driver}',
+                        label_visibility='collapsed',
+                    )
+                with col_hide:
+                    hide_checked[driver] = st.checkbox(
+                        '非表示', key=f'hide_{driver}', value=False
+                    )
+                new_configs[driver] = selected_type
+
+            st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
+            submitted = st.form_submit_button('💾 設定を保存', use_container_width=True)
+
+        if submitted:
+            db.save_driver_configs_bulk(new_configs)
+            for driver, to_hide in hide_checked.items():
+                if to_hide:
+                    db.save_driver_hidden(driver, True)
+            st.success('✅ 設定を保存しました。')
+            st.rerun()
+    else:
         st.markdown("""
         <div class="empty-state">
           <div class="empty-icon">⚙️</div>
           <p>シフトデータがありません。<br>先にPDFをアップロードしてください。</p>
         </div>""", unsafe_allow_html=True)
-        return
 
-    current_configs = db.get_all_driver_configs()
+    # ── ドライバー追加 ──
+    st.markdown('<hr class="thin-divider">', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">ドライバー追加</div>', unsafe_allow_html=True)
+    col_input, col_btn = st.columns([3, 1])
+    with col_input:
+        new_driver_name = st.text_input(
+            'ドライバー名', key='new_driver_input',
+            label_visibility='collapsed', placeholder='ドライバー名を入力'
+        )
+    with col_btn:
+        if st.button('追加', use_container_width=True, key='add_driver_btn'):
+            name = new_driver_name.strip()
+            if name:
+                db.register_drivers_if_new([name])
+                st.success(f'✅ {name} を追加しました。')
+                st.rerun()
+            else:
+                st.warning('名前を入力してください。')
 
-    with st.form('driver_config_form'):
-        st.markdown('<div class="section-label">与野タイプ 固定設定</div>', unsafe_allow_html=True)
-        new_configs = {}
-        for driver in drivers:
-            current_type = current_configs.get(driver, 'normal')
-            # 旧タイプ（spot, early_shift, long）は 'normal' に読み替え
-            if current_type not in YONO_TYPE_OPTIONS:
-                current_type = 'normal'
-            col_name, col_sel = st.columns([2, 2])
+    # ── 非表示ドライバー管理 ──
+    if hidden_drivers:
+        st.markdown('<hr class="thin-divider">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">非表示ドライバー（退職・休職）</div>', unsafe_allow_html=True)
+        for driver in hidden_drivers:
+            col_name, col_btn = st.columns([3, 1])
             with col_name:
                 st.markdown(
-                    f'<div style="display:flex;align-items:center;padding:0.45rem 0;">'
-                    f'<span style="font-weight:600;font-size:0.95rem;color:#1e293b;">{driver}</span></div>',
+                    f'<span style="color:#94a3b8;text-decoration:line-through;">{driver}</span>',
                     unsafe_allow_html=True,
                 )
-            with col_sel:
-                selected_type = st.selectbox(
-                    label=driver,
-                    options=YONO_TYPE_OPTIONS,
-                    index=YONO_TYPE_OPTIONS.index(current_type),
-                    format_func=lambda x: YONO_TYPE_LABELS[x],
-                    key=f'cfg_{driver}',
-                    label_visibility='collapsed',
-                )
-            new_configs[driver] = selected_type
-
-        st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
-        submitted = st.form_submit_button('💾 設定を保存', use_container_width=True)
-
-    if submitted:
-        db.save_driver_configs_bulk(new_configs)
-        st.success('✅ 設定を保存しました。')
-        st.rerun()
+            with col_btn:
+                if st.button('表示に戻す', key=f'unhide_{driver}', use_container_width=True):
+                    db.save_driver_hidden(driver, False)
+                    st.rerun()
 
 
 # ────────────────────────────────────────────────
@@ -1657,6 +1703,8 @@ def tab_upload():
                     upload_id = str(uuid.uuid4())
                     db.save_shifts(shifts, upload_id, year_month)
                     db.save_upload_record(upload_id, uploaded.name, year_month, len(shifts))
+                    # PDFに含まれるドライバーを自動登録
+                    db.register_drivers_if_new(list({s['driver'] for s in shifts}))
                     st.success(f'✅ 解析完了  {len(shifts):,} 件を保存しました')
 
                     sdf = pd.DataFrame(shifts)
