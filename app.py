@@ -109,6 +109,9 @@ YONO_TYPE_LABELS = {
 }
 YONO_TYPE_OPTIONS = ['normal', 'sc4', 'sc5', 'mae4', 'mae5', 'roku', 'shime', 'late']
 
+# 与野タイプの表示順（ここを並び替えると出力の順番が変わる）
+YONO_SORT_ORDER = ['shime', 'mae4', 'mae5', 'sc4', 'sc5', 'roku', 'late', 'normal']
+
 YONO_EXPECTED = {}  # 人数チェックの基準値（未設定中は警告なし）
 
 # ドライバーアバター用カラーパレット（名前ハッシュで固定色）
@@ -315,6 +318,11 @@ def setup_page():
         gap: 0.6rem;
     }
     .driver-row:last-child { border-bottom: none; }
+    .yono-sep {
+        height: 0;
+        border-top: 1.5px solid #9ca3af;
+        margin: 0 1rem;
+    }
     .d-name {
         font-size: 1rem;
         font-weight: 500;
@@ -482,6 +490,30 @@ def _merged_yono_configs(target_date_str: str, driver_configs: dict) -> dict:
     merged = dict(driver_configs)
     merged.update(overrides)
     return merged
+
+
+def _sorted_yono_rows(job_df, driver_configs) -> tuple:
+    """与野ドライバーをYONO_SORT_ORDERの順でソートして返す。
+    Returns: (sorted_rows: list[dict], sep_indices: set[int])
+    sep_indices は「その行インデックスの手前に区切り線を入れる」インデックスの集合。
+    """
+    def _rank(yt):
+        try:
+            return YONO_SORT_ORDER.index(yt)
+        except ValueError:
+            return len(YONO_SORT_ORDER)
+
+    rows_with_type = [
+        (r.to_dict(), _effective_yono_type(r, driver_configs))
+        for _, r in job_df.iterrows()
+    ]
+    rows_with_type.sort(key=lambda x: _rank(x[1]))
+
+    sep_indices = {
+        i for i in range(1, len(rows_with_type))
+        if rows_with_type[i][1] != rows_with_type[i - 1][1]
+    }
+    return [r for r, _ in rows_with_type], sep_indices
 
 
 def _is_weekend(d: date) -> bool:
@@ -652,15 +684,20 @@ def render_shift_view(target_date_str: str):
             'header_bg': '#424242', 'header_txt': '#fff',
         })
         rows_html = ''
-        for _, r in job_df.iterrows():
-            yono_type = _effective_yono_type(r, driver_configs) if job == '与野' else None
-            # 与野は早朝案件バッジを表示しない（早朝案件セクションに別途表示）
-            early = None
-            rows_html += _driver_row_html(
-                r['driver'], early,
-                bool(r.get('special_flag')), yono_type,
-                yokonori=bool(r.get('yokonori_flag')),
-            )
+        if job == '与野':
+            sorted_rows, sep_idx = _sorted_yono_rows(job_df, driver_configs)
+            for i, r in enumerate(sorted_rows):
+                if i in sep_idx:
+                    rows_html += '<div class="yono-sep"></div>'
+                rows_html += _driver_row_html(
+                    r['driver'], None, bool(r.get('special_flag')),
+                    _effective_yono_type(r, driver_configs),
+                    yokonori=bool(r.get('yokonori_flag')))
+        else:
+            for _, r in job_df.iterrows():
+                rows_html += _driver_row_html(
+                    r['driver'], None, bool(r.get('special_flag')), None,
+                    yokonori=bool(r.get('yokonori_flag')))
         st.markdown(_card_html(job, color, rows_html, len(job_df)), unsafe_allow_html=True)
 
     if not has_any:
@@ -753,10 +790,15 @@ def _build_shift_html(target_date_str: str) -> str:
             continue
         color = JOB_COLORS.get(job, {'bg': '#fafafa', 'border': '#9e9e9e', 'header_bg': '#424242', 'header_txt': '#fff'})
         rows_html = ''
-        for _, r in job_df.iterrows():
-            yono_type = _effective_yono_type(r, driver_configs) if job == '与野' else None
-            early = None
-            rows_html += _driver_row_html(r['driver'], early, bool(r.get('special_flag')), yono_type, yokonori=bool(r.get('yokonori_flag')))
+        if job == '与野':
+            sorted_rows, sep_idx = _sorted_yono_rows(job_df, driver_configs)
+            for i, r in enumerate(sorted_rows):
+                if i in sep_idx:
+                    rows_html += '<div class="yono-sep"></div>'
+                rows_html += _driver_row_html(r['driver'], None, bool(r.get('special_flag')), _effective_yono_type(r, driver_configs), yokonori=bool(r.get('yokonori_flag')))
+        else:
+            for _, r in job_df.iterrows():
+                rows_html += _driver_row_html(r['driver'], None, bool(r.get('special_flag')), None, yokonori=bool(r.get('yokonori_flag')))
         cards_html += _card_html(job, color, rows_html, len(job_df))
 
     early_section_html = ''
@@ -866,6 +908,11 @@ body {
     gap: 0.6rem;
 }
 .driver-row:last-child { border-bottom: none; }
+.yono-sep {
+    height: 0;
+    border-top: 1.5px solid #9ca3af;
+    margin: 0 1rem;
+}
 .d-name { font-size: 1rem; font-weight: 500; color: #1a1a1a; flex: 1; }
 .d-badges { display: flex; gap: 0.3rem; align-items: center; }
 .badge {
@@ -1065,7 +1112,7 @@ def generate_day_image(target_date_str: str) -> bytes:
         y += SEC_H
 
     # ── カード描画 ──
-    def draw_card(display_name, job_color_hex, rows, hide_badges=False):
+    def draw_card(display_name, job_color_hex, rows, hide_badges=False, sep_indices=None):
         nonlocal y
         jcol = h2r(job_color_hex)
         n     = len(rows)
@@ -1158,19 +1205,28 @@ def generate_day_image(target_date_str: str) -> bytes:
 
             # 行間区切り線（最後の行は除く）
             if i < n - 1:
+                is_group_sep = sep_indices and (i + 1) in sep_indices
+                line_col = h2r('#6b7f96') if is_group_sep else h2r('#2d3d5a')
+                line_w   = 2 if is_group_sep else 1
                 draw.line([(cx0 + BAR_W + 8, ry + ROW_H),
                            (cx1 - 8, ry + ROW_H)],
-                          fill=h2r('#2d3d5a'), width=1)
+                          fill=line_col, width=line_w)
 
         y += card_h + CARD_GAP
 
     # ── メイン案件 ──
     draw_section_label('メイン案件')
     for job in daytime_jobs:
-        job_rows = display_df[display_df['job_main'] == job].to_dict('records')
-        draw_card(PNG_DISPLAY.get(job, job),
-                  PNG_COLORS.get(job, '#94a3b8'),
-                  job_rows, hide_badges=False)
+        job_df_now = display_df[display_df['job_main'] == job]
+        if job == '与野':
+            sorted_rows, sep_idx = _sorted_yono_rows(job_df_now, driver_configs)
+            draw_card(PNG_DISPLAY.get(job, job),
+                      PNG_COLORS.get(job, '#94a3b8'),
+                      sorted_rows, hide_badges=False, sep_indices=sep_idx)
+        else:
+            draw_card(PNG_DISPLAY.get(job, job),
+                      PNG_COLORS.get(job, '#94a3b8'),
+                      job_df_now.to_dict('records'), hide_badges=False)
 
     # ── 早朝案件 ──
     if early_jobs:
@@ -1347,7 +1403,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         pdf.set_y(y + SEC_H)
 
     # ── カード（フルカラーヘッダー + 左ストライプ行）──
-    def draw_card(label, rows, ar, ag, ab, hide_early=False, hide_badges=False, header_badge=None):
+    def draw_card(label, rows, ar, ag, ab, hide_early=False, hide_badges=False, header_badge=None, sep_indices=None):
         if not rows: return
         cx, cy = MARGIN, pdf.get_y()
 
@@ -1382,7 +1438,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         tag_h  = ROW_H * 0.50
         drv_fs = 7.5
 
-        for row in rows:
+        for idx, row in enumerate(rows):
             ry = pdf.get_y()
             fill(*C_WHITE); draw(*C_BORDER)
             pdf.rect(cx, ry, CW, ROW_H, 'FD')
@@ -1422,15 +1478,25 @@ def generate_day_pdf(target_date_str: str) -> bytes:
 
             pdf.set_y(ry + ROW_H)
 
+            # グループ区切り線
+            if sep_indices and (idx + 1) in sep_indices:
+                draw(130, 140, 155); pdf.set_line_width(0.4)
+                pdf.line(cx + LEFT_BAR, ry + ROW_H, cx + CW, ry + ROW_H)
+                draw(*C_BORDER); pdf.set_line_width(0.1)
+
         pdf.set_y(cy + HDR_H + len(rows) * ROW_H + SPACING)
 
     # ── 案件別稼働 ──
     draw_section_label('案件別稼働')
     for job in MAIN_JOBS_ORDER:
-        job_rows = display_df[display_df['job_main'] == job].to_dict('records')
-        if not job_rows: continue
+        job_df_now = display_df[display_df['job_main'] == job]
+        if job_df_now.empty: continue
         accent = COLOR_MAP.get(job, (80, 80, 80))
-        draw_card(job, job_rows, *accent, hide_early=True)
+        if job == '与野':
+            sorted_rows, sep_idx = _sorted_yono_rows(job_df_now, driver_configs)
+            draw_card(job, sorted_rows, *accent, hide_early=True, sep_indices=sep_idx)
+        else:
+            draw_card(job, job_df_now.to_dict('records'), *accent, hide_early=True)
 
     # ── 早朝案件 ──
     early_df = display_df[
