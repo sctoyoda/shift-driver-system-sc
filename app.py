@@ -28,7 +28,7 @@ import pdf_parser as parser
 # 定数
 # ────────────────────────────────────────────────
 
-MAIN_JOBS_ORDER = ['与野', '川口前川（スポット）', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ', 'イオン板橋']
+MAIN_JOBS_ORDER = ['与野', '川口前川（スポット）', 'ヤオコー', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ', 'イオン板橋']
 EXCLUDED_JOBS   = {'ダイオ', '草加'}
 
 LOGO_DIR = os.path.join(os.path.dirname(__file__), 'logos')
@@ -84,6 +84,7 @@ JOB_COLORS = {
     '東天紅':   {'bg': '#fdf4ff', 'border': '#8e24aa', 'header_bg': '#6a1b9a', 'header_txt': '#ffffff'},
     'ハナマサ':   {'bg': '#fffde7', 'border': '#fdd835', 'header_bg': '#f9a825', 'header_txt': '#1a1a1a'},
     'イオン板橋': {'bg': '#fef8f3', 'border': '#c2713f', 'header_bg': '#a05a2c', 'header_txt': '#ffffff'},
+    'ヤオコー':   {'bg': '#fff8f0', 'border': '#f97316', 'header_bg': '#c2410c', 'header_txt': '#ffffff'},
 }
 
 EARLY_JOB_COLORS = {
@@ -97,17 +98,18 @@ EARLY_JOB_COLORS = {
 WEEKDAY_JA = ['月', '火', '水', '木', '金', '土', '日']
 
 YONO_TYPE_LABELS = {
-    'normal':      '通常',
-    'spot':        'スポット',
-    'early_shift': '早番',
-    'long':        '10〜18',
+    'normal': '通常',
+    'sc4':    'SC4走',
+    'sc5':    'SC5走',
+    'mae4':   '前4走',
+    'mae5':   '前5走',
+    'roku':   '6走',
+    'shime':  '配車',
+    'late':   '遅番',
 }
-YONO_TYPE_OPTIONS = list(YONO_TYPE_LABELS.keys())
+YONO_TYPE_OPTIONS = ['normal', 'sc4', 'sc5', 'mae4', 'mae5', 'roku', 'shime', 'late']
 
-YONO_EXPECTED = {
-    'weekday': {'normal': 3, 'early_shift': 1, 'spot': 1},
-    'weekend': {'normal': 4, 'early_shift': 0, 'spot': 1},
-}
+YONO_EXPECTED = {}  # 人数チェックの基準値（未設定中は警告なし）
 
 # ドライバーアバター用カラーパレット（名前ハッシュで固定色）
 _AVATAR_PALETTE = [
@@ -341,6 +343,13 @@ def setup_page():
     .badge-early-shift { background: #5b21b6; color: #fff; }
     .badge-long        { background: #d97706; color: #fff; }
     .badge-yokonori    { background: #b45309; color: #fff; }
+    .badge-sc4         { background: #7c3aed; color: #fff; }
+    .badge-sc5         { background: #16a34a; color: #fff; }
+    .badge-mae4        { background: #1d4ed8; color: #fff; }
+    .badge-mae5        { background: #d97706; color: #fff; }
+    .badge-roku        { background: #f87171; color: #fff; }
+    .badge-shime       { background: #ffffff; color: #1a1a1a; border: 1px solid #9ca3af; }
+    .badge-late        { background: #9ca3af; color: #fff; }
 
     /* ── WARNING ── */
     .warning-card {
@@ -451,6 +460,9 @@ def setup_page():
 # 与野人数チェック
 # ────────────────────────────────────────────────
 
+LEGACY_TYPES = {'spot', 'early_shift', 'long'}
+
+
 def _effective_yono_type(row, driver_configs: dict) -> str:
     """
     与野タイプを決定する優先順位:
@@ -458,8 +470,10 @@ def _effective_yono_type(row, driver_configs: dict) -> str:
       2. driver_config の固定設定
       3. デフォルト 'normal'
     PDF色自動判定は無効化済み（pdf_parser では常に 'normal' で保存）
+    旧タイプ（spot, early_shift, long）は 'normal' に読み替える。
     """
-    return driver_configs.get(row.get('driver', ''), 'normal')
+    result = driver_configs.get(row.get('driver', ''), 'normal')
+    return result if result not in LEGACY_TYPES else 'normal'
 
 
 def _merged_yono_configs(target_date_str: str, driver_configs: dict) -> dict:
@@ -487,14 +501,22 @@ def _is_holiday(d: date) -> bool:
 
 
 def check_yono_warning(yono_df: pd.DataFrame, target_date: date) -> Optional[str]:
-    counts = {'normal': 0, 'spot': 0, 'early_shift': 0}
+    # YONO_EXPECTED が空の場合は警告なし
+    if not YONO_EXPECTED:
+        return None
+
+    is_weekend = _is_weekend(target_date)
+    day_key    = 'weekend' if is_weekend else 'weekday'
+    if day_key not in YONO_EXPECTED:
+        return None
+
+    counts = {}
     for _, row in yono_df.iterrows():
         t = row.get('effective_yono_type', 'normal')
         counts[t] = counts.get(t, 0) + 1
 
-    is_weekend = _is_weekend(target_date)
-    expected   = YONO_EXPECTED['weekend'] if is_weekend else YONO_EXPECTED['weekday']
-    day_type   = '土日祝' if is_weekend else '平日'
+    expected = YONO_EXPECTED[day_key]
+    day_type = '土日祝' if is_weekend else '平日'
 
     total_actual   = sum(counts.values())
     total_expected = sum(expected.values())
@@ -503,10 +525,10 @@ def check_yono_warning(yono_df: pd.DataFrame, target_date: date) -> Optional[str
         return None
 
     lines = [f'⚠️  与野人数が基準と異なります（{day_type}）']
-    lines.append(f'通常: {counts["normal"]}名  (基準 {expected["normal"]}名)')
-    if not is_weekend:
-        lines.append(f'早番: {counts["early_shift"]}名  (基準 {expected["early_shift"]}名)')
-    lines.append(f'スポット: {counts["spot"]}名  (基準 {expected["spot"]}名)')
+    for k, v in expected.items():
+        actual = counts.get(k, 0)
+        label  = YONO_TYPE_LABELS.get(k, k)
+        lines.append(f'{label}: {actual}名  (基準 {v}名)')
     lines.append(f'合計: {total_actual}名  (基準 {total_expected}名)')
     return '\n'.join(lines)
 
@@ -558,12 +580,18 @@ def _driver_row_html(driver: str, job_early: Optional[str],
     badges = ''
     if job_early:
         badges += f'<span class="badge badge-early">{job_early}</span>'
-    if yono_type == 'spot':
-        badges += '<span class="badge badge-spot">スポット</span>'
-    elif yono_type == 'early_shift':
-        badges += '<span class="badge badge-early-shift">早番</span>'
-    elif yono_type == 'long':
-        badges += '<span class="badge badge-long">10〜18</span>'
+    type_to_badge = {
+        'sc4':   ('badge-sc4',   'SC4走'),
+        'sc5':   ('badge-sc5',   'SC5走'),
+        'mae4':  ('badge-mae4',  '前4走'),
+        'mae5':  ('badge-mae5',  '前5走'),
+        'roku':  ('badge-roku',  '6走'),
+        'shime': ('badge-shime', '配車'),
+        'late':  ('badge-late',  '遅番'),
+    }
+    if yono_type in type_to_badge:
+        cls, label = type_to_badge[yono_type]
+        badges += f'<span class="badge {cls}">{label}</span>'
     if yokonori:
         badges += '<span class="badge badge-yokonori">横乗り</span>'
     if special:
@@ -853,6 +881,13 @@ body {
 .badge-early-shift { background: #5b21b6; color: #fff; }
 .badge-long        { background: #d97706; color: #fff; }
 .badge-yokonori    { background: #b45309; color: #fff; }
+.badge-sc4         { background: #7c3aed; color: #fff; }
+.badge-sc5         { background: #16a34a; color: #fff; }
+.badge-mae4        { background: #1d4ed8; color: #fff; }
+.badge-mae5        { background: #d97706; color: #fff; }
+.badge-roku        { background: #f87171; color: #fff; }
+.badge-shime       { background: #ffffff; color: #1a1a1a; border: 1px solid #9ca3af; }
+.badge-late        { background: #9ca3af; color: #fff; }
 .total-bar {
     display: flex;
     align-items: baseline;
@@ -927,6 +962,7 @@ def generate_day_image(target_date_str: str) -> bytes:
     PNG_COLORS = {
         '与野':    '#22c55e',
         '川口前川（スポット）':   '#ec4899',
+        'ヤオコー': '#f97316',
         '巣鴨':    '#eab308',
         'イイダ':  '#94a3b8',
         '高島平':  '#38bdf8',
@@ -944,6 +980,7 @@ def generate_day_image(target_date_str: str) -> bytes:
     PNG_DISPLAY = {
         '与野':    'イオン与野',
         '川口前川（スポット）':   '川口前川（スポット）',
+        'ヤオコー': 'ヤオコー',
         '巣鴨':    '西友巣鴨',
         'イイダ':  'イイダ',
         '高島平':  '高島平',
@@ -971,7 +1008,7 @@ def generate_day_image(target_date_str: str) -> bytes:
     display_df = df[df['job_main'].notna() & (df['job_main'] != '')].copy()
     early_df   = df[df['job_early'].notna() & (df['job_early'] != '')].copy()
 
-    JOB_ORDER  = ['与野', '川口前川（スポット）', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ', 'イオン板橋']
+    JOB_ORDER  = ['与野', '川口前川（スポット）', 'ヤオコー', '巣鴨', 'イイダ', '高島平', '東天紅', 'ハナマサ', 'イオン板橋']
     JOB_HIDDEN = {'ダイオ'}   # 表示しない案件
     daytime_jobs = [j for j in JOB_ORDER if not display_df[display_df['job_main'] == j].empty]
     for j in display_df['job_main'].unique():
@@ -1080,12 +1117,17 @@ def generate_day_image(target_date_str: str) -> bytes:
                 # (text, bg, fg, bold)
                 badges = []
                 cfg = _effective_yono_type(row, driver_configs)
-                if cfg == 'spot':
-                    badges.append(('10〜16', '#0891b2', '#ffffff', True))
-                elif cfg == 'early_shift':
-                    badges.append(('早番', '#7c3aed', '#ffffff', True))
-                elif cfg == 'long':
-                    badges.append(('10〜18', '#d97706', '#ffffff', True))
+                PNG_YONO_BADGE_MAP = {
+                    'sc4':   ('SC4走', '#7c3aed', '#ffffff', True),
+                    'sc5':   ('SC5走', '#16a34a', '#ffffff', True),
+                    'mae4':  ('前4走', '#1d4ed8', '#ffffff', True),
+                    'mae5':  ('前5走', '#d97706', '#ffffff', True),
+                    'roku':  ('6走',   '#f87171', '#ffffff', True),
+                    'shime': ('配車',  '#ffffff', '#1a1a1a', True),
+                    'late':  ('遅番',  '#9ca3af', '#ffffff', True),
+                }
+                if cfg in PNG_YONO_BADGE_MAP:
+                    badges.append(PNG_YONO_BADGE_MAP[cfg])
                 if row.get('yokonori_flag', 0):
                     badges.append(('横乗り', '#831843', '#f9a8d4', False))
                 if row.get('special_flag', 0):
@@ -1205,6 +1247,7 @@ def generate_day_pdf(target_date_str: str) -> bytes:
 
     COLOR_MAP = {
         '与野':    (67, 160,  71), '川口前川（スポット）':   (236,  72, 153),
+        'ヤオコー': (249, 115,  22),
         '巣鴨':    (230,  81,   0),'イイダ':  ( 55,  71,  79),
         '高島平':  ( 13,  71, 161),'東天紅':  (106,  27, 154),
         'ハナマサ':   (240, 185,   0),
@@ -1215,9 +1258,13 @@ def generate_day_pdf(target_date_str: str) -> bytes:
         '洗濯':   (51, 105, 30), 'カゴ回収':   (40, 53, 147),
     }
     YONO_BADGE = {
-        'early_shift': ((91,  33, 182), '早番'),
-        'spot':        (( 7,  89, 133), 'スポット'),
-        'long':        ((180, 80,   0), '10〜18'),
+        'sc4':   ((124,  58, 237), 'SC4走'),
+        'sc5':   (( 22, 163,  74), 'SC5走'),
+        'mae4':  (( 29,  78, 216), '前4走'),
+        'mae5':  ((217, 119,   6), '前5走'),
+        'roku':  ((248, 113, 113), '6走'),
+        'shime': ((200, 200, 200), '配車'),
+        'late':  ((156, 163, 175), '遅番'),
     }
 
     display_df_pre = df[~df['job_main'].fillna('').isin(EXCLUDED_JOBS)]
@@ -1438,7 +1485,7 @@ def tab_view():
 
     col_date, col_btn = st.columns([3, 1])
     with col_date:
-        selected = st.date_input('', value=default_val,
+        selected = st.date_input('日付を選択', value=default_val,
                                  min_value=min_d, max_value=max_d,
                                  format='YYYY/MM/DD',
                                  label_visibility='collapsed')
@@ -1525,6 +1572,9 @@ def tab_settings():
         new_configs = {}
         for driver in drivers:
             current_type = current_configs.get(driver, 'normal')
+            # 旧タイプ（spot, early_shift, long）は 'normal' に読み替え
+            if current_type not in YONO_TYPE_OPTIONS:
+                current_type = 'normal'
             col_name, col_sel = st.columns([2, 2])
             with col_name:
                 st.markdown(
@@ -1700,7 +1750,7 @@ def _check_password() -> bool:
         return True
 
     # ページ読み込み時に localStorage を確認して自動リダイレクト
-    st.components.v1.html(f"""
+    st.html(f"""
         <script>
         (function() {{
             try {{
@@ -1715,7 +1765,7 @@ def _check_password() -> bool:
             }} catch(e) {{}}
         }})();
         </script>
-    """, height=0)
+    """)
 
     st.markdown("""
     <style>
@@ -1756,7 +1806,7 @@ def _check_password() -> bool:
             st.session_state['_authenticated'] = True
             if remember:
                 # localStorage に保存して ?auth=token 付きでリロード
-                st.components.v1.html(f"""
+                st.html(f"""
                     <script>
                     try {{
                         window.parent.localStorage.setItem('shift_auth_token', '{valid_token}');
@@ -1765,7 +1815,7 @@ def _check_password() -> bool:
                         window.parent.location.replace(url.toString());
                     }} catch(e) {{}}
                     </script>
-                """, height=0)
+                """)
             else:
                 st.rerun()
         else:

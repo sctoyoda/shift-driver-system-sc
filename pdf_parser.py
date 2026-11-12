@@ -27,6 +27,8 @@ EARLY_PREFIXES = [
     ('リネン対面',  'リネン対面'),
     ('リネン2回線', 'リネン2回線'),
     ('リネン',      'リネン'),
+    ('リネ朝対',    'リネン対面'),
+    ('リネ朝2',     'リネン2回線'),
     ('リネ対',      'リネン対面'),
     ('リネ2',       'リネン2回線'),
     ('リネ',        'リネン'),
@@ -59,6 +61,10 @@ MAIN_JOB_PATTERNS = [
     ('ハナマサ','ハナマサ'),
     ('イイダ横', 'イイダ'),
     ('イイダ',  'イイダ'),
+    ('ヤオコー', 'ヤオコー'),
+    ('締配車',  '与野'),
+    ('締配',    '与野'),
+    ('遅番',    '与野'),
     # 与野の各バリアント（数字 / 横 は全て与野に正規化）
     ('与野横',  '与野'),
     ('与野1',   '与野'),
@@ -88,7 +94,7 @@ MAIN_JOB_PATTERNS = [
 
 # スキップすべきドライバー行のパターン
 _SKIP_ROW_RE = re.compile(
-    r'^(氏\s*名|稼働合計|合計|\d+は\d|北戸田は|1は|2は|3は|4は|\s*$)',
+    r'^(氏\s*名|稼働合計|合計|\d+は\d|北戸田は|1は|2は|3は|4は|植竹|\s*$)',
 )
 
 
@@ -151,7 +157,15 @@ def parse_cell_text(raw: str) -> dict:
                     yono_hint = 'spot'
                 break
 
-    return {'job_early': job_early, 'job_main': job_main, 'is_yokonori': is_yokonori, 'yono_hint': yono_hint}
+    # 与野テキストタイプ（テキスト内容から判定）
+    yono_text_type = None
+    if job_main == '与野':
+        if '締配' in text:
+            yono_text_type = 'shime'
+        elif '遅番' in text:
+            yono_text_type = 'late'
+
+    return {'job_early': job_early, 'job_main': job_main, 'is_yokonori': is_yokonori, 'yono_hint': yono_hint, 'yono_text_type': yono_text_type}
 
 
 # ────────────────────────────────────────────────
@@ -433,11 +447,6 @@ def _parse_table_page(page, year_month: str) -> list:
     except Exception:
         pass
 
-    # デバッグ: driver_day_color の全件出力
-    print(f"[DEBUG] driver_day_color ({len(driver_day_color)} 件):")
-    for (drv, day), ct in sorted(driver_day_color.items(), key=lambda x: (x[0][0], x[0][1])):
-        print(f"  driver={drv}  day={day:02d}  color={ct}")
-
     # データ行の解析
     shifts = []
     for i, row in enumerate(table):
@@ -471,8 +480,10 @@ def _parse_table_page(page, year_month: str) -> list:
             ct = driver_day_color.get((driver, day), 'normal')
             if ct == 'special':
                 special_flag = 1
-            # 与野タイプの色自動判定は無効化（稼働確認画面の手動設定UIで管理）
-            # yono_type は常に 'normal' のまま保存する
+            # 与野タイプ: テキスト内容から自動判定（色判定は無効化済み）
+            job_main_cell = job_info['job_main']
+            if job_info.get('yono_text_type') is not None and job_main_cell == '与野':
+                yono_type = job_info['yono_text_type']
 
             try:
                 full_date = f"{year_month}-{day:02d}"
